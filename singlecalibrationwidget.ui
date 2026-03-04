@@ -1,0 +1,291 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>SingleCalibrationWidget</class>
+ <widget class="QWidget" name="SingleCalibrationWidget">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>417</width>
+    <height>728</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>标定控制界面</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_Main">
+   <item>
+    <widget class="QGroupBox" name="groupBox_CameraInfo">
+     <property name="title">
+      <string>相机信息</string>
+     </property>
+     <layout class="QHBoxLayout" name="horizontalLayout_CameraInfo">
+      <item>
+       <widget class="QLabel" name="label_CameraSN">
+        <property name="text">
+         <string>相机SN:</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLineEdit" name="lineEdit_CameraSN">
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+        <property name="placeholderText">
+         <string>未设置</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Parameters">
+     <property name="title">
+      <string>标定参数</string>
+     </property>
+     <layout class="QFormLayout" name="formLayout_Parameters">
+      <item row="0" column="0">
+       <widget class="QLabel" name="label_PatternRows">
+        <property name="text">
+         <string>棋盘格行数:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QSpinBox" name="spinBox_PatternRows">
+        <property name="minimum">
+         <number>3</number>
+        </property>
+        <property name="maximum">
+         <number>20</number>
+        </property>
+        <property name="value">
+         <number>20</number>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="label_PatternCols">
+        <property name="text">
+         <string>棋盘格列数:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QSpinBox" name="spinBox_PatternCols">
+        <property name="minimum">
+         <number>3</number>
+        </property>
+        <property name="maximum">
+         <number>20</number>
+        </property>
+        <property name="value">
+         <number>20</number>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="label_SquareSize">
+        <property name="text">
+         <string>方格尺寸(mm):</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QDoubleSpinBox" name="doubleSpinBox_SquareSize">
+        <property name="decimals">
+         <number>1</number>
+        </property>
+        <property name="minimum">
+         <double>1.000000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>100.000000000000000</double>
+        </property>
+        <property name="value">
+         <double>10.000000000000000</double>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_CameraCalibration">
+     <property name="title">
+      <string>相机标定</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_CameraCalibration">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_CameraButtons">
+        <item>
+         <widget class="QPushButton" name="pushButton_StartCaptureCameraImage">
+          <property name="text">
+           <string>采集相机图片</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_StartCalibrateCamera">
+          <property name="text">
+           <string>开始标定</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_deleteImagesCamera">
+          <property name="text">
+           <string>清空图片</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QProgressBar" name="progressBar_CameraCalibration">
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_ProjectorCalibration">
+     <property name="title">
+      <string>投影仪标定</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_ProjectorCalibration">
+      <item>
+       <layout class="QGridLayout" name="gridLayout_ProjectorButtons">
+        <item row="0" column="0">
+         <widget class="QPushButton" name="pushButton_StartCalibrationSequenceProjector">
+          <property name="text">
+           <string>采集投影仪序列</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QPushButton" name="button_LoadImagesProjector">
+          <property name="text">
+           <string>读取图片</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QPushButton" name="pushButton_deleteImagesProjector">
+          <property name="text">
+           <string>清空图片</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="QPushButton" name="button_StartCalibrationProjector">
+          <property name="text">
+           <string>开始标定</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QProgressBar" name="progressBar_ProjectorCalibration">
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="label_SequenceProgress">
+     <property name="styleSheet">
+      <string notr="true">background-color:rgb(200,200, 200); padding: 5px;</string>
+     </property>
+     <property name="text">
+      <string>采集进度: 0/0</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignmentFlag::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_CoordinationCalibration">
+     <property name="title">
+      <string>坐标系标定</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_CoordinationCalibration">
+      <item>
+       <widget class="QPushButton" name="pushButton_StartCalibrationCoordination">
+        <property name="text">
+         <string>开始标定</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QProgressBar" name="progressBar_CoordinationCalibration">
+        <property name="value">
+         <number>0</number>
+        </property>
+        <property name="textVisible">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_Status">
+     <property name="title">
+      <string>状态信息</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_Status">
+      <item>
+       <widget class="QLabel" name="label_Status">
+        <property name="styleSheet">
+         <string notr="true">background-color: lightblue; padding: 5px;</string>
+        </property>
+        <property name="text">
+         <string>状态: 待机</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignmentFlag::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QTextEdit" name="textEdit_Log">
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>120</height>
+         </size>
+        </property>
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+        <property name="placeholderText">
+         <string>操作日志将在此显示...</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
