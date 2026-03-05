@@ -14,31 +14,6 @@
 #include <QFileInfo>
 #include <QCoreApplication>
 
-SingleReconstructWidget::SingleReconstructWidget(QWidget *parent)
-    : QWidget(parent)
-    , ui(new Ui::SingleReconstructWidget)
-    , m_projectorController(nullptr)
-    , m_cameraController(nullptr)
-    , m_cameraWidget(nullptr)
-    , m_cameraHandle(nullptr)
-    , m_reconEngine(nullptr)
-    , m_grabWorker(nullptr)
-    , m_processWorker(nullptr)
-    , m_isReconstructing(false)
-    , m_isInitialized(false)
-    , m_wasGrabbingBeforeRecon(false)
-    , m_nGrayCode(5)
-    , m_nPhaseShift(4)
-    , m_framesPerBatch(11)  // Pattern 8: 1 white + 1 dark + 5 GC + 4 PS
-    , m_projectorExposure(41000)
-    , m_projectorPattern(8)  // Pattern 8 by default
-    , m_currentFps(0.0)
-    , m_currentPointCount(0)
-{
-    ui->setupUi(this);
-    updateButtonStates();
-}
-
 SingleReconstructWidget::SingleReconstructWidget(ProjectorController* projCtrl,
                                                  CCameraController* camCtrl,
                                                  SingleCameraControlWidget* camWidget,

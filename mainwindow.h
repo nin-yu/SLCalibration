@@ -65,6 +65,11 @@ private slots:
     void onReconstructionStatusUpdated(const QString& message);
     void onReconstructionStateChanged(bool running);
 
+    // QTabWidget标签同步槽函数
+    void onCameraTabChanged(int index);
+    void onProjectorTabChanged(int index);
+    void onCalibrationTabChanged(int index);
+
 private:
     
     // 加载配置文件
@@ -88,6 +93,9 @@ private:
 
     // 更新标定信息显示
     void updateCalibrationDisplayInfo();
+
+    // 设置QTabWidget标签同步
+    void setupTabSynchronization();
 
     Ui::MainWindow *ui;
 
@@ -119,5 +127,8 @@ private:
     
     // 设备配置信息
     DeviceConfig m_deviceConfig;
+
+    // 标签同步标志，防止循环触发
+    bool m_isSyncingTabs = false;
 };
 #endif // MAINWINDOW_H

@@ -34,13 +34,13 @@ MainWindow::MainWindow(QWidget *parent)
     , m_rightReconstructWidget(nullptr)
 {
     ui->setupUi(this);
-    
+
     // 加载配置文件
     if (!loadConfiguration()) {
         // 如果加载失败，保存默认配置
         saveDefaultConfiguration();
     }
-    
+
     // 初始化投影仪控制器DLL
     if (!m_projectorController->loadDll()) {
         QMessageBox::critical(this, tr("错误"), tr("无法加载投影仪控制DLL"));
@@ -48,16 +48,18 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     // 相机控制器已直接集成，无需加载DLL
-    
+
     // 连接检测投影仪按钮的点击信号
     connect(ui->pushButton_ProjectorDetect, &QPushButton::clicked,
             this, &MainWindow::onProjectorDetectClicked);
-    
+
     // 连接菜单栏的配置加载测试信号（如果存在的话）
     // 注意：这需要在UI设计器中添加相应的菜单项
-    // connect(ui->actionLoad_Config, &QAction::triggered, 
+    // connect(ui->actionLoad_Config, &QAction::triggered,
     //         this, &MainWindow::on_actionLoad_Config_triggered);
 
+    // 连接QTabWidget标签切换信号，实现三个区域的同步切换
+    setupTabSynchronization();
 }
 
 MainWindow::~MainWindow()
@@ -883,5 +885,82 @@ void MainWindow::onReconstructionStateChanged(bool running)
     QString status = running ? "开始" : "停止";
     QString logMessage = QString("[%1] 点云重建%2").arg(timestamp).arg(status);
     ui->textEdit_CalibrationResults->append(logMessage);
+}
+
+// ==================== QTabWidget标签同步功能 ====================
+
+void MainWindow::setupTabSynchronization()
+{
+    // 连接相机控制QTabWidget的currentChanged信号
+    connect(ui->tabWidget_CameraControl, QOverload<int>::of(&QTabWidget::currentChanged),
+            this, &MainWindow::onCameraTabChanged);
+
+    // 连接投影仪控制QTabWidget的currentChanged信号
+    connect(ui->tabWidget_ProjectorControl, QOverload<int>::of(&QTabWidget::currentChanged),
+            this, &MainWindow::onProjectorTabChanged);
+
+    // 连接结构光标定QTabWidget的currentChanged信号
+    connect(ui->tabWidget_, QOverload<int>::of(&QTabWidget::currentChanged),
+            this, &MainWindow::onCalibrationTabChanged);
+}
+
+void MainWindow::onCameraTabChanged(int index)
+{
+    // 防止循环触发
+    if (m_isSyncingTabs) return;
+    m_isSyncingTabs = true;
+
+    // index 0 = 左相机控制, index 1 = 右相机控制
+    if (index == 0) {
+        // 切换到左侧界面
+        ui->tabWidget_ProjectorControl->setCurrentIndex(0);  // 左投影仪控制
+        ui->tabWidget_->setCurrentIndex(0);                  // 左子系统标定
+    } else if (index == 1) {
+        // 切换到右侧界面
+        ui->tabWidget_ProjectorControl->setCurrentIndex(1);  // 右投影仪控制
+        ui->tabWidget_->setCurrentIndex(1);                  // 右子系统标定
+    }
+
+    m_isSyncingTabs = false;
+}
+
+void MainWindow::onProjectorTabChanged(int index)
+{
+    // 防止循环触发
+    if (m_isSyncingTabs) return;
+    m_isSyncingTabs = true;
+
+    // index 0 = 左投影仪控制, index 1 = 右投影仪控制
+    if (index == 0) {
+        // 切换到左侧界面
+        ui->tabWidget_CameraControl->setCurrentIndex(0);     // 左相机控制
+        ui->tabWidget_->setCurrentIndex(0);                  // 左子系统标定
+    } else if (index == 1) {
+        // 切换到右侧界面
+        ui->tabWidget_CameraControl->setCurrentIndex(1);     // 右相机控制
+        ui->tabWidget_->setCurrentIndex(1);                  // 右子系统标定
+    }
+
+    m_isSyncingTabs = false;
+}
+
+void MainWindow::onCalibrationTabChanged(int index)
+{
+    // 防止循环触发
+    if (m_isSyncingTabs) return;
+    m_isSyncingTabs = true;
+
+    // index 0 = 左子系统标定, index 1 = 右子系统标定
+    if (index == 0) {
+        // 切换到左侧界面
+        ui->tabWidget_CameraControl->setCurrentIndex(0);     // 左相机控制
+        ui->tabWidget_ProjectorControl->setCurrentIndex(0);  // 左投影仪控制
+    } else if (index == 1) {
+        // 切换到右侧界面
+        ui->tabWidget_CameraControl->setCurrentIndex(1);     // 右相机控制
+        ui->tabWidget_ProjectorControl->setCurrentIndex(1);  // 右投影仪控制
+    }
+
+    m_isSyncingTabs = false;
 }
 

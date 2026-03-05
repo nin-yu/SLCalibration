@@ -44,8 +44,6 @@ public:
     /**
      * @brief Default constructor (for Qt Designer compatibility)
      */
-    explicit SingleReconstructWidget(QWidget *parent = nullptr);
-
     /**
      * @brief Full constructor with dependency injection
      * @param projCtrl Projector controller
