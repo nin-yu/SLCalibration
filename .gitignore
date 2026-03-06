@@ -89,9 +89,11 @@ release/
 .gitattributes
 build_debug.bat
 build_temp.bat
+debug_output.log
 debug.log
 config.ini
 nul
 SLCalibration.qtvscr
 SLCalibration.pro
 SLCalibration.code-workspace
+AGENTS.md

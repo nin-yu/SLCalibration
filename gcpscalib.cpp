@@ -1,14 +1,17 @@
 #include "gcpscalib.h"
 #include "structuredlightdecoder.h"
+#include <iostream>
 #include <fstream>
 #include <algorithm>
 #include <regex>
 #include <functional>
 #include <iomanip>
 #include <sstream>
+#include <numeric>
+#include <limits>
+#include <cmath>
 #include <qdir.h>
 #include <filesystem>
-#include <QDebug>
 
 // 实现 GcPsCalib 类
 
@@ -31,7 +34,7 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
     std::vector<std::vector<std::string>> poseGroups = groupCalibrationImages(imagePaths);
     
     if (poseGroups.empty()) {
-        qCritical() << "Error: No pose groups found.";
+        std::cerr << "Error: No pose groups found." << std::endl;
         return false;
     }
     
@@ -69,7 +72,7 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
     }
     
     if (allWorldPoints.empty()) {
-        qCritical() << "Error: No valid poses were processed.";
+        std::cerr << "Error: No valid poses were processed." << std::endl;
         return false;
     }
     
@@ -91,41 +94,41 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
             camSize = firstImg.size();
         }
     } else {
-        qCritical() << "Error: No images available for camera resolution detection.";
+        std::cerr << "Error: No images available for camera resolution detection." << std::endl;
         return false;
     }
     
     // 调试输出：打印allWorldPoints和allProjectorPoints的内容
-    qDebug() << "======= 调试信息：标定点数据 =======";
-    qDebug() << "总共有" << allWorldPoints.size() << "组姿态数据";
+    std::cout << "======= 调试信息：标定点数据 =======" << std::endl;
+    std::cout << "总共有 " << allWorldPoints.size() << " 组姿态数据" << std::endl;
 
     for(size_t poseIdx = 0; poseIdx < allWorldPoints.size(); poseIdx++) {
-        qDebug() << "\n--- 姿态" << poseIdx << "---";
-        qDebug() << "世界坐标点数量:" << allWorldPoints[poseIdx].size();
-        qDebug() << "投影仪坐标点数量:" << allProjectorPoints[poseIdx].size();
+        std::cout << "\n--- 姿态 " << poseIdx << " ---" << std::endl;
+        std::cout << "世界坐标点数量: " << allWorldPoints[poseIdx].size() << std::endl;
+        std::cout << "投影仪坐标点数量: " << allProjectorPoints[poseIdx].size() << std::endl;
 
         // 检查两组点的数量是否匹配
         if(allWorldPoints[poseIdx].size() != allProjectorPoints[poseIdx].size()) {
-            qWarning() << "警告: 姿态" << poseIdx << "的世界坐标点与投影仪坐标点数量不匹配!";
+            std::cout << "警告: 姿态 " << poseIdx << " 的世界坐标点与投影仪坐标点数量不匹配!" << std::endl;
         }
 
         // 打印前几个点的坐标（限制输出数量以避免过多信息）
         size_t printCount = std::min(static_cast<size_t>(10), allWorldPoints[poseIdx].size());
         for(size_t ptIdx = 0; ptIdx < printCount; ptIdx++) {
-            qDebug() << "  点" << ptIdx
-                     << ": 世界坐标(" << allWorldPoints[poseIdx][ptIdx].x
-                     << "," << allWorldPoints[poseIdx][ptIdx].y
-                     << "," << allWorldPoints[poseIdx][ptIdx].z
-                     << ") <-> 投影仪坐标(" << allProjectorPoints[poseIdx][ptIdx].x
-                     << "," << allProjectorPoints[poseIdx][ptIdx].y << ")";
+            std::cout << "  点 " << ptIdx 
+                      << ": 世界坐标(" << allWorldPoints[poseIdx][ptIdx].x 
+                      << ", " << allWorldPoints[poseIdx][ptIdx].y 
+                      << ", " << allWorldPoints[poseIdx][ptIdx].z 
+                      << ") <-> 投影仪坐标(" << allProjectorPoints[poseIdx][ptIdx].x 
+                      << ", " << allProjectorPoints[poseIdx][ptIdx].y << ")" << std::endl;
         }
 
         if(allWorldPoints[poseIdx].size() > 10) {
-            qDebug() << "  ... 还有" << (allWorldPoints[poseIdx].size() - 10) << "个点未显示";
+            std::cout << "  ... 还有 " << (allWorldPoints[poseIdx].size() - 10) << " 个点未显示" << std::endl;
         }
     }
 
-    qDebug() << "===================================";
+    std::cout << "===================================" << std::endl;
     
     // 5. 执行投影仪标定
     cv::Mat projMatrix, projDist;
@@ -140,8 +143,32 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
                                            calibData.camMatrix, calibData.camDist,
                                            projMatrix, projDist,
                                            camSize, R, T, E, F, cv::CALIB_FIX_INTRINSIC);
+
+    // 7. 计算极线误差（去畸变后对称点到极线距离，单位：像素）
+    double epiMeanPx = -1.0;
+    double epiMedianPx = -1.0;
+    double epiP95Px = -1.0;
+    double epiMaxPx = -1.0;
+    int epiValidCount = 0;
+    bool epiOk = computeSymmetricEpipolarError(
+        allCameraPoints,
+        allProjectorPoints,
+        calibData.camMatrix,
+        calibData.camDist,
+        projMatrix,
+        projDist,
+        F,
+        epiMeanPx,
+        epiMedianPx,
+        epiP95Px,
+        epiMaxPx,
+        epiValidCount
+    );
+    if (!epiOk) {
+        std::cerr << "Warning: Failed to compute epipolar error statistics." << std::endl;
+    }
     
-    // 7. 保存标定结果
+    // 8. 保存标定结果
     calibData.projMatrix = projMatrix;
     calibData.projDist = projDist;
     calibData.R_CamToProj = R;
@@ -151,15 +178,20 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
     calibData.projFrequency = projFreq;
     calibData.rmsProj = rmsProj;
     calibData.rmsStereo = rmsStereo;
+    calibData.epiMeanPx = epiMeanPx;
+    calibData.epiMedianPx = epiMedianPx;
+    calibData.epiP95Px = epiP95Px;
+    calibData.epiMaxPx = epiMaxPx;
+    calibData.epiValidCount = epiValidCount;
     
-    // 8. 输出调试报告
-    writeDebugReport("debug/calibration_debug.txt",
+    // 9. 输出调试报告
+    /*writeDebugReport("debug/calibration_debug.txt",
                      chessboardSize, squareSize, projSize, projFreq,
                      nGrayCode, nPhaseShift, camSize, successCount, totalPoses,
                      projMatrix, projDist, rmsProj, rvecsProj, tvecsProj,
                      R, T, E, F, rmsStereo,
                      calibData.camMatrix, calibData.camDist,
-                     allCameraPoints, allProjectorPoints);
+                     allCameraPoints, allProjectorPoints);*/
     
     emit calibrationFinished(true);
     return true;
@@ -206,7 +238,7 @@ bool GcPsCalib::processPoseGroup(const std::vector<std::string>& poseImages,  //
     const int EXPECTED_IMAGE_COUNT = 20;
     
     if (poseImages.size() < EXPECTED_IMAGE_COUNT) {
-        qCritical() << "Error: Expected at least" << EXPECTED_IMAGE_COUNT << "images, got" << poseImages.size();
+        std::cerr << "Error: Expected at least " << EXPECTED_IMAGE_COUNT << " images, got " << poseImages.size() << std::endl;
         return false;
     }
     
@@ -231,43 +263,43 @@ bool GcPsCalib::processPoseGroup(const std::vector<std::string>& poseImages,  //
     
     // 2. 验证图像加载成功
     if (darkImg.empty()) {
-        qCritical() << "Error: Failed to load dark image:" << poseImages[0].c_str();
+        std::cerr << "Error: Failed to load dark image: " << poseImages[0] << std::endl;
         return false;
     }
     if (whiteImg.empty()) {
-        qCritical() << "Error: Failed to load white image:" << poseImages[1].c_str();
+        std::cerr << "Error: Failed to load white image: " << poseImages[1] << std::endl;
         return false;
     }
     
     // 验证 GC/PS 图像数量
     if (gcHImgs.size() != nGrayCode || gcVImgs.size() != nGrayCode ||
         psHImgs.size() != nPhaseShift || psVImgs.size() != nPhaseShift) {
-        qCritical() << "Error: Incorrect number of GC/PS images loaded.";
+        std::cerr << "Error: Incorrect number of GC/PS images loaded." << std::endl;
         return false;
     }
     
     // 验证所有图像加载成功
     for (size_t i = 0; i < gcHImgs.size(); i++) {
         if (gcHImgs[i].empty()) {
-            qCritical() << "Error: Failed to load GC_H image" << i;
+            std::cerr << "Error: Failed to load GC_H image " << i << std::endl;
             return false;
         }
     }
     for (size_t i = 0; i < gcVImgs.size(); i++) {
         if (gcVImgs[i].empty()) {
-            qCritical() << "Error: Failed to load GC_V image" << i;
+            std::cerr << "Error: Failed to load GC_V image " << i << std::endl;
             return false;
         }
     }
     for (size_t i = 0; i < psVImgs.size(); i++) {
         if (psVImgs[i].empty()) {
-            qCritical() << "Error: Failed to load PS_V image" << i;
+            std::cerr << "Error: Failed to load PS_V image " << i << std::endl;
             return false;
         }
     }
     for (size_t i = 0; i < psHImgs.size(); i++) {
         if (psHImgs[i].empty()) {
-            qCritical() << "Error: Failed to load PS_H image" << i;
+            std::cerr << "Error: Failed to load PS_H image " << i << std::endl;
             return false;
         }
     }
@@ -275,26 +307,27 @@ bool GcPsCalib::processPoseGroup(const std::vector<std::string>& poseImages,  //
     // 2. 检测相机图像中的角点
     bool found = findChessboardCornersEnhanced(whiteImg, chessboardSize, cameraPoints);
     if (!found) {
-        qCritical() << "Error: Failed to find chessboard corners in white image.";
+        std::cerr << "Error: Failed to find chessboard corners in white image." << std::endl;
         return false;
     }
     
     // 调试输出：打印cameraPoints的内容
-    qDebug() << "======= 调试信息：相机角点数据 =======";
-    qDebug() << "检测到的相机角点数量:" << cameraPoints.size();
+    std::cout << "======= 调试信息：相机角点数据 =======" << std::endl;
+    std::cout << "检测到的相机角点数量: " << cameraPoints.size() << std::endl;
     
     // 打印前几个角点坐标（限制输出数量以避免过多信息）
     size_t printCount = std::min(static_cast<size_t>(5), cameraPoints.size());
     for(size_t ptIdx = 0; ptIdx < printCount; ptIdx++) {
-        qDebug() << "  角点" << ptIdx << ":("
-                 << cameraPoints[ptIdx].x << "," << cameraPoints[ptIdx].y << ")";
+        std::cout << "  角点 " << ptIdx << ": (" 
+                  << std::fixed << std::setprecision(2) << cameraPoints[ptIdx].x 
+                  << ", " << cameraPoints[ptIdx].y << ")" << std::endl;
     }
     
     if(cameraPoints.size() > 5) {
-        qDebug() << "  ... 还有" << (cameraPoints.size() - 5) << "个角点未显示";
+        std::cout << "  ... 还有 " << (cameraPoints.size() - 5) << " 个角点未显示" << std::endl;
     }
     
-    qDebug() << "=====================================";
+    std::cout << "=====================================" << std::endl;
     
     // 3. 创建世界坐标点
     worldPoints.clear();
@@ -312,53 +345,55 @@ bool GcPsCalib::processPoseGroup(const std::vector<std::string>& poseImages,  //
     cv::Mat absPhaseH = decoderH.decode(gcHImgs, psHImgs, darkImg);
     
     if (absPhaseV.empty() || absPhaseH.empty()) {
-        qCritical() << "Error: Phase decoding failed.";
+        std::cerr << "Error: Phase decoding failed." << std::endl;
         return false;
     }
     
     // 调试输出：打印absPhaseV和absPhaseH的内容
-    qDebug() << "======= 调试信息：相位数据 =======";
-    qDebug() << "绝对相位V维度:" << absPhaseV.rows << "x" << absPhaseV.cols;
-    qDebug() << "绝对相位H维度:" << absPhaseH.rows << "x" << absPhaseH.cols;
+    std::cout << "======= 调试信息：相位数据 =======" << std::endl;
+    std::cout << "绝对相位V维度: " << absPhaseV.rows << "x" << absPhaseV.cols << std::endl;
+    std::cout << "绝对相位H维度: " << absPhaseH.rows << "x" << absPhaseH.cols << std::endl;
     
     // 打印相位矩阵的一些统计信息
     if(!absPhaseV.empty()) {
         double minValV, maxValV;
         cv::minMaxLoc(absPhaseV, &minValV, &maxValV);
-        qDebug() << "absPhaseV - 最小值:" << minValV << ", 最大值:" << maxValV;
+        std::cout << "absPhaseV - 最小值: " << std::fixed << std::setprecision(2) << minValV 
+                  << ", 最大值: " << maxValV << std::endl;
         
         // 打印左上角区域的一些相位值
         int sampleRows = std::min(3, absPhaseV.rows);
         int sampleCols = std::min(3, absPhaseV.cols);
-        qDebug() << "absPhaseV样本值:";
+        std::cout << "absPhaseV样本值:" << std::endl;
         for(int r = 0; r < sampleRows; r++) {
-            QString rowStr = QString("  行%1: ").arg(r);
+            std::cout << "  行" << r << ": ";
             for(int c = 0; c < sampleCols; c++) {
-                rowStr += QString::number(absPhaseV.at<float>(r, c), 'f', 2) + " ";
+                std::cout << std::fixed << std::setprecision(2) << absPhaseV.at<float>(r, c) << " ";
             }
-            qDebug() << rowStr;
+            std::cout << std::endl;
         }
     }
     
     if(!absPhaseH.empty()) {
         double minValH, maxValH;
         cv::minMaxLoc(absPhaseH, &minValH, &maxValH);
-        qDebug() << "absPhaseH - 最小值:" << minValH << ", 最大值:" << maxValH;
+        std::cout << "absPhaseH - 最小值: " << std::fixed << std::setprecision(2) << minValH 
+                  << ", 最大值: " << maxValH << std::endl;
         
         // 打印左上角区域的一些相位值
         int sampleRows = std::min(3, absPhaseH.rows);
         int sampleCols = std::min(3, absPhaseH.cols);
-        qDebug() << "absPhaseH样本值:";
+        std::cout << "absPhaseH样本值:" << std::endl;
         for(int r = 0; r < sampleRows; r++) {
-            QString rowStr = QString("  行%1: ").arg(r);
+            std::cout << "  行" << r << ": ";
             for(int c = 0; c < sampleCols; c++) {
-                rowStr += QString::number(absPhaseH.at<float>(r, c), 'f', 2) + " ";
+                std::cout << std::fixed << std::setprecision(2) << absPhaseH.at<float>(r, c) << " ";
             }
-            qDebug() << rowStr;
+            std::cout << std::endl;
         }
     }
     
-    qDebug() << "=====================================";
+    std::cout << "=====================================" << std::endl;
     
     // 5. 转换相位为投影仪像素坐标
     cv::Mat mapU = decoderV.phaseToPixels(absPhaseV);
@@ -413,7 +448,7 @@ std::vector<cv::Point2f> GcPsCalib::getSubpixelValues(const cv::Mat& mapU,  // U
                                  const std::vector<cv::Point2f>& points)  // 输入点
 {
     // 委托给 StructuredLightDecoder 类进行处理
-    qWarning() << "Warning: getSubpixelValues is deprecated. Use StructuredLightDecoder::getSubpixelValues instead.";
+    std::cerr << "Warning: getSubpixelValues is deprecated. Use StructuredLightDecoder::getSubpixelValues instead." << std::endl;
     return StructuredLightDecoder::getSubpixelValues(mapU, mapV, points);
 }
 
@@ -453,7 +488,7 @@ bool GcPsCalib::saveCalibrationData(const CalibrationData& calibData,  // 标定
 {
     cv::FileStorage fs(filePath, cv::FileStorage::WRITE);
     if (!fs.isOpened()) {
-        qCritical() << "Error: Could not open file for writing:" << filePath.c_str();
+        std::cerr << "Error: Could not open file for writing: " << filePath << std::endl;
         return false;
     }
     
@@ -492,6 +527,11 @@ bool GcPsCalib::saveCalibrationData(const CalibrationData& calibData,  // 标定
     // 写入浮点参数（确保固定小数格式）
     fs << "rmsProj" << calibData.rmsProj;
     fs << "rmsStereo" << calibData.rmsStereo;
+    fs << "epiMeanPx" << calibData.epiMeanPx;
+    fs << "epiMedianPx" << calibData.epiMedianPx;
+    fs << "epiP95Px" << calibData.epiP95Px;
+    fs << "epiMaxPx" << calibData.epiMaxPx;
+    fs << "epiValidCount" << calibData.epiValidCount;
     
     if (!calibData.R_BoardToCam.empty()) {
         fs << "R_BoardToCam" << calibData.R_BoardToCam;
@@ -508,20 +548,32 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
 {
     cv::FileStorage fs(filePath, cv::FileStorage::READ);
     if (!fs.isOpened()) {
-        qCritical() << "Error: Could not open file for reading:" << filePath.c_str();
+        std::cerr << "Error: Could not open file for reading: " << filePath << std::endl;
         return false;
     }
     
     fs["cameraMatrix"] >> calibData.camMatrix;
+    if (calibData.camMatrix.empty()) {
+        fs["camMatrix"] >> calibData.camMatrix;
+    }
+
     fs["distCoeffs"] >> calibData.camDist;
+    if (calibData.camDist.empty()) {
+        fs["camDist"] >> calibData.camDist;
+    }
+
     fs["projMatrix"] >> calibData.projMatrix;
     fs["projDist"] >> calibData.projDist;
     fs["R_CamToProj"] >> calibData.R_CamToProj;
     fs["T_CamToProj"] >> calibData.T_CamToProj;
     
-    int camWidth, camHeight, projWidth, projHeight;
+    int camWidth = 0, camHeight = 0, projWidth = 0, projHeight = 0;
     fs["imageSize_width"] >> camWidth;
     fs["imageSize_height"] >> camHeight;
+    if (camWidth == 0 || camHeight == 0) {
+        fs["camRes_width"] >> camWidth;
+        fs["camRes_height"] >> camHeight;
+    }
     fs["projRes_width"] >> projWidth;
     fs["projRes_height"] >> projHeight;
     
@@ -531,6 +583,17 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
     fs["proj_frequency"] >> calibData.projFrequency;
     fs["rmsProj"] >> calibData.rmsProj;
     fs["rmsStereo"] >> calibData.rmsStereo;
+    calibData.epiMeanPx = -1.0;
+    calibData.epiMedianPx = -1.0;
+    calibData.epiP95Px = -1.0;
+    calibData.epiMaxPx = -1.0;
+    calibData.epiValidCount = 0;
+
+    if (!fs["epiMeanPx"].empty()) fs["epiMeanPx"] >> calibData.epiMeanPx;
+    if (!fs["epiMedianPx"].empty()) fs["epiMedianPx"] >> calibData.epiMedianPx;
+    if (!fs["epiP95Px"].empty()) fs["epiP95Px"] >> calibData.epiP95Px;
+    if (!fs["epiMaxPx"].empty()) fs["epiMaxPx"] >> calibData.epiMaxPx;
+    if (!fs["epiValidCount"].empty()) fs["epiValidCount"] >> calibData.epiValidCount;
     
     // 检查是否存在坐标系转换数据
     fs["R_BoardToCam"] >> calibData.R_BoardToCam;
@@ -538,6 +601,101 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
     
     fs.release();
     
+    return true;
+}
+
+bool GcPsCalib::computeSymmetricEpipolarError(
+    const std::vector<std::vector<cv::Point2f>>& allCameraPoints,
+    const std::vector<std::vector<cv::Point2f>>& allProjectorPoints,
+    const cv::Mat& camMatrix,
+    const cv::Mat& camDist,
+    const cv::Mat& projMatrix,
+    const cv::Mat& projDist,
+    const cv::Mat& F,
+    double& meanErrPx,
+    double& medianErrPx,
+    double& p95ErrPx,
+    double& maxErrPx,
+    int& validCount)
+{
+    meanErrPx = -1.0;
+    medianErrPx = -1.0;
+    p95ErrPx = -1.0;
+    maxErrPx = -1.0;
+    validCount = 0;
+
+    if (allCameraPoints.empty() || allProjectorPoints.empty() || F.empty()) {
+        return false;
+    }
+
+    std::vector<double> errors;
+    const size_t poseCount = std::min(allCameraPoints.size(), allProjectorPoints.size());
+    for (size_t poseIdx = 0; poseIdx < poseCount; ++poseIdx) {
+        const auto& camPtsPose = allCameraPoints[poseIdx];
+        const auto& projPtsPose = allProjectorPoints[poseIdx];
+        if (camPtsPose.empty() || projPtsPose.empty()) {
+            continue;
+        }
+
+        const size_t pointCount = std::min(camPtsPose.size(), projPtsPose.size());
+        std::vector<cv::Point2f> camPts(camPtsPose.begin(), camPtsPose.begin() + pointCount);
+        std::vector<cv::Point2f> projPts(projPtsPose.begin(), projPtsPose.begin() + pointCount);
+
+        std::vector<cv::Point2f> undCamPts;
+        std::vector<cv::Point2f> undProjPts;
+        cv::undistortPoints(camPts, undCamPts, camMatrix, camDist, cv::noArray(), camMatrix);
+        cv::undistortPoints(projPts, undProjPts, projMatrix, projDist, cv::noArray(), projMatrix);
+
+        std::vector<cv::Vec3f> linesInProj;
+        std::vector<cv::Vec3f> linesInCam;
+        cv::computeCorrespondEpilines(undCamPts, 1, F, linesInProj);
+        cv::computeCorrespondEpilines(undProjPts, 2, F, linesInCam);
+
+        const size_t validPairCount = std::min(std::min(undCamPts.size(), undProjPts.size()),
+                                               std::min(linesInProj.size(), linesInCam.size()));
+        for (size_t i = 0; i < validPairCount; ++i) {
+            const cv::Vec3f& lineProj = linesInProj[i];
+            const cv::Vec3f& lineCam = linesInCam[i];
+
+            const double denomProj = std::sqrt(lineProj[0] * lineProj[0] + lineProj[1] * lineProj[1]);
+            const double denomCam = std::sqrt(lineCam[0] * lineCam[0] + lineCam[1] * lineCam[1]);
+            if (denomProj <= std::numeric_limits<double>::epsilon() ||
+                denomCam <= std::numeric_limits<double>::epsilon()) {
+                continue;
+            }
+
+            const cv::Point2f& projPt = undProjPts[i];
+            const cv::Point2f& camPt = undCamPts[i];
+            const double dProj = std::abs(lineProj[0] * projPt.x + lineProj[1] * projPt.y + lineProj[2]) / denomProj;
+            const double dCam = std::abs(lineCam[0] * camPt.x + lineCam[1] * camPt.y + lineCam[2]) / denomCam;
+            const double symErr = 0.5 * (dProj + dCam);
+            if (std::isfinite(symErr)) {
+                errors.push_back(symErr);
+            }
+        }
+    }
+
+    if (errors.empty()) {
+        return false;
+    }
+
+    std::sort(errors.begin(), errors.end());
+    validCount = static_cast<int>(errors.size());
+    meanErrPx = std::accumulate(errors.begin(), errors.end(), 0.0) / static_cast<double>(errors.size());
+
+    if (errors.size() % 2 == 0) {
+        const size_t midRight = errors.size() / 2;
+        const size_t midLeft = midRight - 1;
+        medianErrPx = 0.5 * (errors[midLeft] + errors[midRight]);
+    } else {
+        medianErrPx = errors[errors.size() / 2];
+    }
+
+    const size_t p95Index = static_cast<size_t>(
+        std::ceil(0.95 * static_cast<double>(errors.size())) - 1.0
+    );
+    p95ErrPx = errors[std::min(p95Index, errors.size() - 1)];
+    maxErrPx = errors.back();
     return true;
 }
 
@@ -581,7 +739,7 @@ void GcPsCalib::writeDebugReport(const std::string& filePath,
 
     std::ofstream ofs(filePath);
     if (!ofs.is_open()) {
-        qCritical() << "Error: Failed to open debug file for writing:" << filePath.c_str();
+        std::cerr << "Error: Failed to open debug file for writing: " << filePath << std::endl;
         return;
     }
 
@@ -733,5 +891,5 @@ void GcPsCalib::writeDebugReport(const std::string& filePath,
     ofs << "\n============================================================\n";
     ofs.close();
     
-    qDebug() << "调试报告已保存到:" << filePath.c_str();
+    std::cout << "调试报告已保存到: " << filePath << std::endl;
 }
