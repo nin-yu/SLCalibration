@@ -85,3 +85,12 @@ release/
 ./CalibrateData
 
 /.vs
+SLCalibration.pro
+AGENTS.md
+.gitattributes
+SLCalibration.qtvscr
+build_debug.bat
+build_temp.bat
+build_output.log
+config.ini
+debug.log
