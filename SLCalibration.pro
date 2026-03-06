@@ -78,36 +78,36 @@ QMAKE_CXXFLAGS += /arch:AVX
 QMAKE_CFLAGS += /arch:AVX
 
 ################# OpenCV #################
-INCLUDEPATH += D:\opencv\newbuild\install\include
-DEPENDPATH += D:\opencv\newbuild\install\include
+INCLUDEPATH += F:/GuanZiwei/congliu/chenghao_bps/install/include
+DEPENDPATH += F:/GuanZiwei/congliu/chenghao_bps/install/include
 Debug: {
-LIBS += -LD:\opencv\newbuild\install\x64\vc16\lib -lopencv_world455d \
+LIBS += -LF:/GuanZiwei/congliu/chenghao_bps/install/x64/vc16/lib -lopencv_world455d \
                                                  -lopencv_xfeatures2d455d
 }
 
 Release: {
-LIBS += -LD:\opencv\newbuild\install\x64\vc16\lib -lopencv_world455\
+LIBS += -LF:/GuanZiwei/congliu/chenghao_bps/install/x64/vc16/lib -lopencv_world455\
                                                  -lopencv_xfeatures2d455
 }
 
 ################# 海康SDK #################
-MVSDK_PATH = "E:/Program Files/MVS/Development"
+MVSDK_PATH = "C:/PROGRA~2/MVS/Development"
 INCLUDEPATH += $$MVSDK_PATH/Includes
 DEPENDPATH += $$MVSDK_PATH/Includes
 LIBS += -L$$MVSDK_PATH/Libraries/win64 -lMvCameraControl
 LIBS += -ladvapi32
 
 ################# Eigen #################
-INCLUDEPATH += E:/PCL1.12.1/3rdParty/Eigen/eigen3 \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/Eigen3/include/eigen3 \
 
 
 
 ################# PCL #################
-INCLUDEPATH += E:/PCL1.15.1/include/pcl-1.15 \
-INCLUDEPATH += E:/PCL1.15.1/include/pcl-1.15/pcl \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/include/pcl-1.15 \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/include/pcl-1.15/pcl \
 
 Debug:{
-LIBS += -LE:/PCL1.15.1/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/lib \
     -lpcl_commond \
     -lpcl_featuresd \
     -lpcl_filtersd \
@@ -130,7 +130,7 @@ LIBS += -LE:/PCL1.15.1/lib \
     -lpcl_visualizationd
 }
 Release:{
-LIBS += -LE:/PCL1.15.1/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/lib \
     -lpcl_common\
     -lpcl_features\
     -lpcl_filters\
@@ -154,10 +154,10 @@ LIBS += -LE:/PCL1.15.1/lib \
 }
 
 ################# BOOST #################
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/Boost/include/boost-1_87 \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/Boost/include/boost-1_87 \
 
 Debug:{
-LIBS += -LE:/PCL1.15.1/3rdParty/Boost/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/Boost/lib \
         -llibboost_atomic-vc143-mt-gd-x64-1_87\
         -llibboost_bzip2-vc143-mt-gd-x64-1_87\
         -llibboost_charconv-vc143-mt-gd-x64-1_87\
@@ -209,7 +209,7 @@ LIBS += -LE:/PCL1.15.1/3rdParty/Boost/lib \
         -llibboost_zlib-vc143-mt-gd-x64-1_87
 }
 Release:{
-LIBS += -LE:/PCL1.15.1/3rdParty/Boost/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/Boost/lib \
         -llibboost_atomic-vc143-mt-x64-1_87\
         -llibboost_bzip2-vc143-mt-x64-1_87\
         -llibboost_charconv-vc143-mt-x64-1_87\
@@ -262,21 +262,21 @@ LIBS += -LE:/PCL1.15.1/3rdParty/Boost/lib \
 }
 
 ################# Eigen #################
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/Eigen/eigen3 \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/Eigen3/include/eigen3 \
 
 ################# FLANN #################
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/FLANN/include \
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/FLANN/include/flann
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/FLANN/include \
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/FLANN/include/flann
 
 Debug:{
-LIBS += -LE:/PCL1.15.1/3rdParty/FLANN/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/FLANN/lib \
         -lflann-gd\
         -lflann_cpp-gd\
         -lflann_cpp_s-gd\
         -lflann_s-gd\
 }
 Release:{
-LIBS += -LE:/PCL1.15.1/3rdParty/FLANN/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/FLANN/lib \
         -lflann\
         -lflann_cpp\
         -lflann_cpp_s\
@@ -284,27 +284,27 @@ LIBS += -LE:/PCL1.15.1/3rdParty/FLANN/lib \
 }
 
 ################# OpenNI2 #################
-INCLUDEPATH += E:/PCL1.12.1/3rdParty/OpenNI2/include
+INCLUDEPATH += F:/GuanZiwei/congliu/chenghao_bps/PCL1.12.1/3rdParty/OpenNI2/Include
 Debug:{
-LIBS += -LE:/PCL1.12.1/3rdParty/OpenNI2/Lib \
+LIBS += -LF:/GuanZiwei/congliu/chenghao_bps/PCL1.12.1/3rdParty/OpenNI2/Lib \
         -lOpenNI2\
 }
 Release:{
-LIBS += -LE:/PCL1.12.1/3rdParty/OpenNI2/Lib \
+LIBS += -LF:/GuanZiwei/congliu/chenghao_bps/PCL1.12.1/3rdParty/OpenNI2/Lib \
         -lOpenNI2\
 }
 
 ################# Qhull #################
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/Qhull/include
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/Qhull/include
 Debug:{
-LIBS += -LE:/PCL1.15.1/3rdParty/Qhull/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/Qhull/lib \
         -lqhull_rd\
         -lqhullcpp_d\
         -lqhullstatic_d\
         -lqhullstatic_rd\
 }
 Release:{
-LIBS += -LE:/PCL1.15.1/3rdParty/Qhull/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/Qhull/lib \
         -lqhull_r\
         -lqhullcpp\
         -lqhullstatic\
@@ -312,9 +312,9 @@ LIBS += -LE:/PCL1.15.1/3rdParty/Qhull/lib \
 }
 
 ################# VTK #################
-INCLUDEPATH += E:/PCL1.15.1/3rdParty/VTK/include/vtk-9.4
+INCLUDEPATH += F:/GuanZiwei/PCL115~1.1/3rdParty/VTK/include/vtk-9.4
 Debug:{
-LIBS += -LE:/PCL1.15.1/3rdParty/VTK/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/VTK/lib \
         -lvtkcgns-9.4d\
         -lvtkChartsCore-9.4d\
         -lvtkCommonColor-9.4d\
@@ -479,7 +479,7 @@ LIBS += -LE:/PCL1.15.1/3rdParty/VTK/lib \
 
 }
 Release:{
-LIBS += -LE:/PCL1.15.1/3rdParty/VTK/lib \
+LIBS += -LF:/GuanZiwei/PCL115~1.1/3rdParty/VTK/lib \
         -lvtkcgns-9.4\
         -lvtkChartsCore-9.4\
         -lvtkCommonColor-9.4\

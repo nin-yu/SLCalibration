@@ -19,9 +19,16 @@ struct CalibrationData {
     cv::Mat T_CamToProj;    // 相机到投影仪的平移向量
     cv::Size camRes;        // 相机分辨率
     cv::Size projRes;       // 投影仪分辨率
-    int projFrequency;      // 投影仪频率
-    double rmsProj;         // 投影仪标定RMS误差
-    double rmsStereo;       // 立体标定RMS误差
+    int projFrequency = 0;  // 投影仪频率
+    double rmsProj = 0.0;   // 投影仪标定RMS误差
+    double rmsStereo = 0.0; // 立体标定RMS误差
+
+    // 极线误差统计（像素）
+    double epiMeanPx = -1.0;
+    double epiMedianPx = -1.0;
+    double epiP95Px = -1.0;
+    double epiMaxPx = -1.0;
+    int epiValidCount = 0;
     
     // 世界坐标系转换
     cv::Mat R_BoardToCam;   // 标定板到相机的旋转矩阵
@@ -91,6 +98,20 @@ private:
     cv::Mat createModulationMask(const std::vector<cv::Mat>& phaseImages, 
                                 const cv::Mat& darkImage, 
                                 double threshold);
+
+    bool computeSymmetricEpipolarError(
+        const std::vector<std::vector<cv::Point2f>>& allCameraPoints,
+        const std::vector<std::vector<cv::Point2f>>& allProjectorPoints,
+        const cv::Mat& camMatrix,
+        const cv::Mat& camDist,
+        const cv::Mat& projMatrix,
+        const cv::Mat& projDist,
+        const cv::Mat& F,
+        double& meanErrPx,
+        double& medianErrPx,
+        double& p95ErrPx,
+        double& maxErrPx,
+        int& validCount);
     
     // 调试报告输出函数
     void writeDebugReport(const std::string& filePath,

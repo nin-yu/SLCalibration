@@ -7,6 +7,9 @@
 #include <functional>
 #include <iomanip>
 #include <sstream>
+#include <numeric>
+#include <limits>
+#include <cmath>
 #include <qdir.h>
 #include <filesystem>
 
@@ -140,8 +143,32 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
                                            calibData.camMatrix, calibData.camDist,
                                            projMatrix, projDist,
                                            camSize, R, T, E, F, cv::CALIB_FIX_INTRINSIC);
+
+    // 7. 计算极线误差（去畸变后对称点到极线距离，单位：像素）
+    double epiMeanPx = -1.0;
+    double epiMedianPx = -1.0;
+    double epiP95Px = -1.0;
+    double epiMaxPx = -1.0;
+    int epiValidCount = 0;
+    bool epiOk = computeSymmetricEpipolarError(
+        allCameraPoints,
+        allProjectorPoints,
+        calibData.camMatrix,
+        calibData.camDist,
+        projMatrix,
+        projDist,
+        F,
+        epiMeanPx,
+        epiMedianPx,
+        epiP95Px,
+        epiMaxPx,
+        epiValidCount
+    );
+    if (!epiOk) {
+        std::cerr << "Warning: Failed to compute epipolar error statistics." << std::endl;
+    }
     
-    // 7. 保存标定结果
+    // 8. 保存标定结果
     calibData.projMatrix = projMatrix;
     calibData.projDist = projDist;
     calibData.R_CamToProj = R;
@@ -151,8 +178,13 @@ bool GcPsCalib::calibrate(const std::vector<std::string>& imagePaths,  // 标定
     calibData.projFrequency = projFreq;
     calibData.rmsProj = rmsProj;
     calibData.rmsStereo = rmsStereo;
+    calibData.epiMeanPx = epiMeanPx;
+    calibData.epiMedianPx = epiMedianPx;
+    calibData.epiP95Px = epiP95Px;
+    calibData.epiMaxPx = epiMaxPx;
+    calibData.epiValidCount = epiValidCount;
     
-    // 8. 输出调试报告
+    // 9. 输出调试报告
     writeDebugReport("debug/calibration_debug.txt",
                      chessboardSize, squareSize, projSize, projFreq,
                      nGrayCode, nPhaseShift, camSize, successCount, totalPoses,
@@ -495,6 +527,11 @@ bool GcPsCalib::saveCalibrationData(const CalibrationData& calibData,  // 标定
     // 写入浮点参数（确保固定小数格式）
     fs << "rmsProj" << calibData.rmsProj;
     fs << "rmsStereo" << calibData.rmsStereo;
+    fs << "epiMeanPx" << calibData.epiMeanPx;
+    fs << "epiMedianPx" << calibData.epiMedianPx;
+    fs << "epiP95Px" << calibData.epiP95Px;
+    fs << "epiMaxPx" << calibData.epiMaxPx;
+    fs << "epiValidCount" << calibData.epiValidCount;
     
     if (!calibData.R_BoardToCam.empty()) {
         fs << "R_BoardToCam" << calibData.R_BoardToCam;
@@ -516,15 +553,27 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
     }
     
     fs["cameraMatrix"] >> calibData.camMatrix;
+    if (calibData.camMatrix.empty()) {
+        fs["camMatrix"] >> calibData.camMatrix;
+    }
+
     fs["distCoeffs"] >> calibData.camDist;
+    if (calibData.camDist.empty()) {
+        fs["camDist"] >> calibData.camDist;
+    }
+
     fs["projMatrix"] >> calibData.projMatrix;
     fs["projDist"] >> calibData.projDist;
     fs["R_CamToProj"] >> calibData.R_CamToProj;
     fs["T_CamToProj"] >> calibData.T_CamToProj;
     
-    int camWidth, camHeight, projWidth, projHeight;
+    int camWidth = 0, camHeight = 0, projWidth = 0, projHeight = 0;
     fs["imageSize_width"] >> camWidth;
     fs["imageSize_height"] >> camHeight;
+    if (camWidth == 0 || camHeight == 0) {
+        fs["camRes_width"] >> camWidth;
+        fs["camRes_height"] >> camHeight;
+    }
     fs["projRes_width"] >> projWidth;
     fs["projRes_height"] >> projHeight;
     
@@ -534,6 +583,17 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
     fs["proj_frequency"] >> calibData.projFrequency;
     fs["rmsProj"] >> calibData.rmsProj;
     fs["rmsStereo"] >> calibData.rmsStereo;
+    calibData.epiMeanPx = -1.0;
+    calibData.epiMedianPx = -1.0;
+    calibData.epiP95Px = -1.0;
+    calibData.epiMaxPx = -1.0;
+    calibData.epiValidCount = 0;
+
+    if (!fs["epiMeanPx"].empty()) fs["epiMeanPx"] >> calibData.epiMeanPx;
+    if (!fs["epiMedianPx"].empty()) fs["epiMedianPx"] >> calibData.epiMedianPx;
+    if (!fs["epiP95Px"].empty()) fs["epiP95Px"] >> calibData.epiP95Px;
+    if (!fs["epiMaxPx"].empty()) fs["epiMaxPx"] >> calibData.epiMaxPx;
+    if (!fs["epiValidCount"].empty()) fs["epiValidCount"] >> calibData.epiValidCount;
     
     // 检查是否存在坐标系转换数据
     fs["R_BoardToCam"] >> calibData.R_BoardToCam;
@@ -541,6 +601,101 @@ bool GcPsCalib::loadCalibrationData(CalibrationData& calibData,  // 标定数据
     
     fs.release();
     
+    return true;
+}
+
+bool GcPsCalib::computeSymmetricEpipolarError(
+    const std::vector<std::vector<cv::Point2f>>& allCameraPoints,
+    const std::vector<std::vector<cv::Point2f>>& allProjectorPoints,
+    const cv::Mat& camMatrix,
+    const cv::Mat& camDist,
+    const cv::Mat& projMatrix,
+    const cv::Mat& projDist,
+    const cv::Mat& F,
+    double& meanErrPx,
+    double& medianErrPx,
+    double& p95ErrPx,
+    double& maxErrPx,
+    int& validCount)
+{
+    meanErrPx = -1.0;
+    medianErrPx = -1.0;
+    p95ErrPx = -1.0;
+    maxErrPx = -1.0;
+    validCount = 0;
+
+    if (allCameraPoints.empty() || allProjectorPoints.empty() || F.empty()) {
+        return false;
+    }
+
+    std::vector<double> errors;
+    const size_t poseCount = std::min(allCameraPoints.size(), allProjectorPoints.size());
+    for (size_t poseIdx = 0; poseIdx < poseCount; ++poseIdx) {
+        const auto& camPtsPose = allCameraPoints[poseIdx];
+        const auto& projPtsPose = allProjectorPoints[poseIdx];
+        if (camPtsPose.empty() || projPtsPose.empty()) {
+            continue;
+        }
+
+        const size_t pointCount = std::min(camPtsPose.size(), projPtsPose.size());
+        std::vector<cv::Point2f> camPts(camPtsPose.begin(), camPtsPose.begin() + pointCount);
+        std::vector<cv::Point2f> projPts(projPtsPose.begin(), projPtsPose.begin() + pointCount);
+
+        std::vector<cv::Point2f> undCamPts;
+        std::vector<cv::Point2f> undProjPts;
+        cv::undistortPoints(camPts, undCamPts, camMatrix, camDist, cv::noArray(), camMatrix);
+        cv::undistortPoints(projPts, undProjPts, projMatrix, projDist, cv::noArray(), projMatrix);
+
+        std::vector<cv::Vec3f> linesInProj;
+        std::vector<cv::Vec3f> linesInCam;
+        cv::computeCorrespondEpilines(undCamPts, 1, F, linesInProj);
+        cv::computeCorrespondEpilines(undProjPts, 2, F, linesInCam);
+
+        const size_t validPairCount = std::min(std::min(undCamPts.size(), undProjPts.size()),
+                                               std::min(linesInProj.size(), linesInCam.size()));
+        for (size_t i = 0; i < validPairCount; ++i) {
+            const cv::Vec3f& lineProj = linesInProj[i];
+            const cv::Vec3f& lineCam = linesInCam[i];
+
+            const double denomProj = std::sqrt(lineProj[0] * lineProj[0] + lineProj[1] * lineProj[1]);
+            const double denomCam = std::sqrt(lineCam[0] * lineCam[0] + lineCam[1] * lineCam[1]);
+            if (denomProj <= std::numeric_limits<double>::epsilon() ||
+                denomCam <= std::numeric_limits<double>::epsilon()) {
+                continue;
+            }
+
+            const cv::Point2f& projPt = undProjPts[i];
+            const cv::Point2f& camPt = undCamPts[i];
+            const double dProj = std::abs(lineProj[0] * projPt.x + lineProj[1] * projPt.y + lineProj[2]) / denomProj;
+            const double dCam = std::abs(lineCam[0] * camPt.x + lineCam[1] * camPt.y + lineCam[2]) / denomCam;
+            const double symErr = 0.5 * (dProj + dCam);
+            if (std::isfinite(symErr)) {
+                errors.push_back(symErr);
+            }
+        }
+    }
+
+    if (errors.empty()) {
+        return false;
+    }
+
+    std::sort(errors.begin(), errors.end());
+    validCount = static_cast<int>(errors.size());
+    meanErrPx = std::accumulate(errors.begin(), errors.end(), 0.0) / static_cast<double>(errors.size());
+
+    if (errors.size() % 2 == 0) {
+        const size_t midRight = errors.size() / 2;
+        const size_t midLeft = midRight - 1;
+        medianErrPx = 0.5 * (errors[midLeft] + errors[midRight]);
+    } else {
+        medianErrPx = errors[errors.size() / 2];
+    }
+
+    const size_t p95Index = static_cast<size_t>(
+        std::ceil(0.95 * static_cast<double>(errors.size())) - 1.0
+    );
+    p95ErrPx = errors[std::min(p95Index, errors.size() - 1)];
+    maxErrPx = errors.back();
     return true;
 }
 
