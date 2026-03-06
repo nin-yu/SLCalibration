@@ -127,6 +127,14 @@ private:
                                     const std::vector<cv::Point2f>& corners,
                                     bool detectionSuccess,
                                     const QString& calibrationPath);
+
+    // 坐标系标定目录管理函数
+    bool clearCoordinateDirectory();
+    bool saveCoordinateImage(const cv::Mat& image, QString& savedImagePath);
+
+    // 投影仪标定图像采集辅助函数
+    // 扫描目录，返回下一个可用的 Pose 编号（从1开始，若目录中存在文件则续接编号）
+    int getNextPoseNumber(const QString& projectorCalibPath) const;
     
     // 控制器指针
     ProjectorController* m_projectorController;

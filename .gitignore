@@ -85,3 +85,13 @@ release/
 ./CalibrateData
 
 /.vs
+/.qoder
+.gitattributes
+build_debug.bat
+build_temp.bat
+debug.log
+config.ini
+nul
+SLCalibration.qtvscr
+SLCalibration.pro
+SLCalibration.code-workspace

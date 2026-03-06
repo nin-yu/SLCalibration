@@ -513,6 +513,23 @@ bool CCameraController::GetImage(void* cameraHandle, unsigned char* pBuffer, uns
     return true;
 }
 
+bool CCameraController::GetImage(void* cameraHandle, unsigned char* pBuffer, unsigned int bufferSize, MV_FRAME_OUT_INFO_EX* pFrameInfo, unsigned int timeoutMs)
+{
+    if (!cameraHandle || !pBuffer || !IsCameraHandleValid(cameraHandle)) {
+        return false;
+    }
+
+    int nRet = MV_CC_GetOneFrameTimeout(cameraHandle, pBuffer, bufferSize, pFrameInfo, timeoutMs);
+    if (MV_OK != nRet) {
+        if (nRet != MV_E_NODATA) {
+            std::cerr << "Get one frame timeout failed! nRet = " << nRet << ", timeoutMs = " << timeoutMs << std::endl;
+        }
+        return false;
+    }
+
+    return true;
+}
+
 bool CCameraController::IsCapturing(void* cameraHandle)
 {
     if (!cameraHandle || !IsCameraHandleValid(cameraHandle)) {

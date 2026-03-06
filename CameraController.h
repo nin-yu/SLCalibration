@@ -49,6 +49,7 @@ public:
     bool StartImageCapture(void* cameraHandle, ImageCallbackFunc callback = nullptr, void* userData = nullptr);
     bool StopImageCapture(void* cameraHandle);
     bool GetImage(void* cameraHandle, unsigned char* pBuffer, unsigned int bufferSize, MV_FRAME_OUT_INFO_EX* pFrameInfo);
+    bool GetImage(void* cameraHandle, unsigned char* pBuffer, unsigned int bufferSize, MV_FRAME_OUT_INFO_EX* pFrameInfo, unsigned int timeoutMs);
     bool IsCapturing(void* cameraHandle);
 
     // Software trigger interface
