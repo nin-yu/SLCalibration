@@ -1503,6 +1503,8 @@ void SingleCalibrationWidget::onCalibrationFinished(bool success)
     ui->button_StartCalibrationProjector->setEnabled(true);
 
     if (success) {
+        constexpr double kEpipolarWarnThresholdPx = 1.0;
+
         // 保存标定结果到投影仪标定文件
         QString sideCode = m_isLeftDevice ? "Left" : "Right";
         QString resultPath = getCalibrationTypePath("Projector") + QString("/ProjectorParams_%1.xml").arg(sideCode);
@@ -1513,10 +1515,34 @@ void SingleCalibrationWidget::onCalibrationFinished(bool success)
         bool saveSuccess = m_calibrator->saveCalibrationData(m_calibData, resultPath.toStdString());
 
         if (saveSuccess) {
-            showSuccessMessage(QString("投影仪标定成功完成！\n结果已保存到: %1\n投影仪RMS误差: %2\n立体标定RMS误差: %3")
-                              .arg(resultPath)
-                              .arg(m_calibData.rmsProj, 0, 'f', 6)
-                              .arg(m_calibData.rmsStereo, 0, 'f', 6));
+            QString epiSummary;
+            QString epiWarning;
+            if (m_calibData.epiValidCount > 0) {
+                epiSummary = QString("极线误差(像素): mean=%1, median=%2, P95=%3, max=%4, N=%5")
+                                .arg(m_calibData.epiMeanPx, 0, 'f', 6)
+                                .arg(m_calibData.epiMedianPx, 0, 'f', 6)
+                                .arg(m_calibData.epiP95Px, 0, 'f', 6)
+                                .arg(m_calibData.epiMaxPx, 0, 'f', 6)
+                                .arg(m_calibData.epiValidCount);
+                if (m_calibData.epiMeanPx > kEpipolarWarnThresholdPx) {
+                    epiWarning = QString("\n[告警] 极线误差均值超过阈值(%1 px)，建议重采高质量姿态后重新标定。")
+                                    .arg(kEpipolarWarnThresholdPx, 0, 'f', 1);
+                    logMessage(QString("告警: 极线误差均值过高(mean=%1 px, threshold=%2 px)")
+                                   .arg(m_calibData.epiMeanPx, 0, 'f', 6)
+                                   .arg(kEpipolarWarnThresholdPx, 0, 'f', 1));
+                }
+            } else {
+                epiSummary = "极线误差(像素): 无有效点，未输出统计";
+                logMessage("警告: 极线误差统计失败或有效点数量不足");
+            }
+
+            showSuccessMessage(QString("投影仪标定成功完成！\n结果已保存到: %1\n投影仪RMS误差: %2\n立体标定RMS误差: %3\n%4%5")
+                                  .arg(resultPath)
+                                  .arg(m_calibData.rmsProj, 0, 'f', 6)
+                                  .arg(m_calibData.rmsStereo, 0, 'f', 6)
+                                  .arg(epiSummary)
+                                  .arg(epiWarning));
+            logMessage(QString("标定结果已保存到: %1").arg(resultPath));
         } else {
             showErrorMessage("标定完成但保存结果失败");
             logMessage("警告: 标定结果保存失败");
