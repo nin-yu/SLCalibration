@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>QAReportWindow</class>
+ <widget class="QMainWindow" name="QAReportWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>600</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>QA报告浏览</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout_main">
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <property name="leftMargin">
+     <number>10</number>
+    </property>
+    <property name="topMargin">
+     <number>10</number>
+    </property>
+    <property name="rightMargin">
+     <number>10</number>
+    </property>
+    <property name="bottomMargin">
+     <number>10</number>
+    </property>
+    <item>
+     <widget class="QGroupBox" name="groupBox_Filter">
+      <property name="title">
+       <string>筛选条件</string>
+      </property>
+      <layout class="QHBoxLayout" name="horizontalLayout_filter">
+       <item>
+        <widget class="QLabel" name="label_From">
+         <property name="text">
+          <string>起始日期:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDateEdit" name="dateEdit_From">
+         <property name="calendarPopup">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_To">
+         <property name="text">
+          <string>结束日期:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QDateEdit" name="dateEdit_To">
+         <property name="calendarPopup">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_Side">
+         <property name="text">
+          <string>设备:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="comboBox_DeviceSide">
+         <item>
+          <property name="text">
+           <string>全部</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>左侧</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>右侧</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="label_Type">
+         <property name="text">
+          <string>类型:</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QComboBox" name="comboBox_ReportType">
+         <item>
+          <property name="text">
+           <string>全部</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>每日QA</string>
+          </property>
+         </item>
+         <item>
+          <property name="text">
+           <string>月度标定</string>
+          </property>
+         </item>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_Query">
+         <property name="text">
+          <string>查询</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>80</width>
+           <height>0</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="pushButton_Export">
+         <property name="text">
+          <string>导出CSV</string>
+         </property>
+         <property name="minimumSize">
+          <size>
+           <width>80</width>
+           <height>0</height>
+          </size>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <widget class="QTableView" name="tableView_Reports">
+      <property name="alternatingRowColors">
+       <bool>true</bool>
+      </property>
+      <property name="selectionBehavior">
+       <enum>QAbstractItemView::SelectRows</enum>
+      </property>
+      <property name="sortingEnabled">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </item>
+    <item>
+     <widget class="QLabel" name="label_RecordCount">
+      <property name="text">
+       <string>共 0 条记录</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignRight|Qt::AlignVCenter</set>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color: #666; padding: 3px;</string>
+      </property>
+     </widget>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>900</width>
+     <height>20</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,5 +1,4 @@
 #include "mainwindow.h"
-#include "ProjectorController.h"
 
 #include <QApplication>
 #include <QMessageBox>
@@ -33,13 +32,6 @@ void writeToWindowsEventLog(const QString& errorMessage)
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
-    
-    // 初始化投影仪控制器（不再检查DLL）
-    ProjectorController projectorCtrl;
-    if (!projectorCtrl.loadDll()) {
-        QMessageBox::warning(nullptr, QObject::tr("提示"), 
-                           QObject::tr("投影仪USB初始化失败，请检查设备连接。"));
-    }
     
     MainWindow w;
     w.show();

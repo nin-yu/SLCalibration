@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CalibrationWindow</class>
+ <widget class="QMainWindow" name="CalibrationWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1299</width>
+    <height>736</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>月度标定 - SLCalibration</string>
+  </property>
+  <widget class="QWidget" name="centralwidget">
+   <layout class="QVBoxLayout" name="verticalLayout_11">
+    <item>
+     <layout class="QVBoxLayout" name="verticalLayout_7" stretch="5,1">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_4" stretch="1,1,2">
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout_8">
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_2">
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout_2">
+              <item>
+               <widget class="QPushButton" name="pushButton_CameraDetect">
+                <property name="text">
+                 <string>检测相机</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="comboBox_CameraSelect"/>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTabWidget" name="tabWidget_CameraControl">
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
+              <widget class="QWidget" name="tabWidget_LeftCameraControl">
+               <attribute name="title">
+                <string>左相机控制</string>
+               </attribute>
+              </widget>
+              <widget class="QWidget" name="tabWidget_RightCameraControl">
+               <attribute name="title">
+                <string>右相机控制</string>
+               </attribute>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_10">
+            <item>
+             <layout class="QHBoxLayout" name="horizontalLayout">
+              <item>
+               <widget class="QPushButton" name="pushButton_ProjectorDetect">
+                <property name="text">
+                 <string>检测投影仪</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QComboBox" name="comboBox_ProjectorSelect"/>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTabWidget" name="tabWidget_ProjectorControl">
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
+              <widget class="QWidget" name="tabWidget_LeftProjectorControl">
+               <attribute name="title">
+                <string>左投影仪控制</string>
+               </attribute>
+              </widget>
+              <widget class="QWidget" name="tabWidget_RightProjectorControl">
+               <attribute name="title">
+                <string>右投影仪控制</string>
+               </attribute>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="verticalLayout">
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_4" stretch="10,1,1">
+            <item>
+             <widget class="QLabel" name="label_CameraImageDisplayLeft">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(255, 255, 110)</string>
+              </property>
+              <property name="text">
+               <string>TextLabel</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_ImageResolutionLeft">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(110, 255, 255)</string>
+              </property>
+              <property name="text">
+               <string>resolutionLabel</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_FPSDisplayLeft">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(110, 255, 255)</string>
+              </property>
+              <property name="text">
+               <string>fpsLabel</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_5" stretch="10,1,1">
+            <item>
+             <widget class="QLabel" name="label_CameraImageDisplayRight">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(255, 255, 110)</string>
+              </property>
+              <property name="text">
+               <string>TextLabel</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_ImageResolutionRight">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(110, 255, 255)</string>
+              </property>
+              <property name="text">
+               <string>resolutionLabel</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="label_FPSDisplayRight">
+              <property name="styleSheet">
+               <string notr="true">background-color:rgb(110, 255, 255)</string>
+              </property>
+              <property name="text">
+               <string>fpsLabel</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="horizontalLayout_3" stretch="1,2">
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_3" stretch="1,8">
+            <item>
+             <layout class="QVBoxLayout" name="verticalLayout_9">
+              <item>
+               <widget class="QLabel" name="label_LeftSL">
+                <property name="text">
+                 <string>左结构光：</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QLabel" name="label_RightSL">
+                <property name="text">
+                 <string>右结构光：</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="pushButton_InitCalibration">
+                <property name="text">
+                 <string>初始化标定界面</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QTabWidget" name="tabWidget_">
+              <property name="currentIndex">
+               <number>0</number>
+              </property>
+              <widget class="QWidget" name="tabWidget_LeftSLCalibration">
+               <attribute name="title">
+                <string>左子系统标定</string>
+               </attribute>
+              </widget>
+              <widget class="QWidget" name="tabWidget_RightSLCalibration">
+               <attribute name="title">
+                <string>右子系统标定</string>
+               </attribute>
+              </widget>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QVBoxLayout" name="verticalLayout_6">
+            <item>
+             <widget class="QGroupBox" name="groupBox_pointcloudLeft">
+              <property name="title">
+               <string>左点云</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QGroupBox" name="groupBox_pointcloudRight">
+              <property name="title">
+               <string>右点云</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QTextEdit" name="textEdit_CalibrationResults"/>
+      </item>
+     </layout>
+    </item>
+   </layout>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1299</width>
+     <height>20</height>
+    </rect>
+   </property>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

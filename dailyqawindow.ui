@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DailyQAWindow</class>
+ <widget class="QDialog" name="DailyQAWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>600</width>
+    <height>500</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>每日QA检测</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout_main">
+   <property name="spacing">
+    <number>12</number>
+   </property>
+   <property name="leftMargin">
+    <number>15</number>
+   </property>
+   <property name="topMargin">
+    <number>15</number>
+   </property>
+   <property name="rightMargin">
+    <number>15</number>
+   </property>
+   <property name="bottomMargin">
+    <number>15</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="groupBox_DeviceStatus">
+     <property name="title">
+      <string>设备状态</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_device">
+      <item>
+       <widget class="QLabel" name="label_DeviceInfo">
+        <property name="text">
+         <string>设备信息加载中...</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_QACheck">
+     <property name="title">
+      <string>QA检测</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_qa">
+      <item>
+       <layout class="QHBoxLayout" name="horizontalLayout_qaControls">
+        <item>
+         <widget class="QLabel" name="label_Standard">
+          <property name="text">
+           <string>检测标准:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QComboBox" name="comboBox_Standard">
+          <item>
+           <property name="text">
+            <string>标准件精度验证</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>图像质量检查</string>
+           </property>
+          </item>
+          <item>
+           <property name="text">
+            <string>设备连接检查</string>
+           </property>
+          </item>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="pushButton_StartQA">
+          <property name="text">
+           <string>开始检测</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>120</width>
+            <height>30</height>
+           </size>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="groupBox_QALog">
+     <property name="title">
+      <string>检测日志</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_log">
+      <item>
+       <widget class="QTextEdit" name="textEdit_QALog">
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Close</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>DailyQAWindow</receiver>
+   <slot>close()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>300</x>
+     <y>480</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>300</x>
+     <y>250</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
