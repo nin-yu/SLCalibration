@@ -24,6 +24,7 @@
 #include "gcpscalib.h"
 #include <QProgressDialog>
 #include <QFile>
+#include "calibrationutils.h"
 
 class SingleCameraControlWidget;  // 前向声明
 class SingleProjectorControlWidget;  // 前向声明
@@ -106,6 +107,13 @@ private:
     void showSuccessMessage(const QString& message);
     void logMessage(const QString& message);
     
+    // 统一日志和消息显示
+    void logAndShow(const QString& message, bool isError = false);
+    
+    // Pose 编号格式化工具 (委托给 CalibrationUtils)
+    QString formatPoseMsg(int poseNumber, const QString& message) const;
+    QString formatPoseNumber(int poseNumber) const;
+    
     // 标定控制函数
     bool captureCameraImages();
     bool calibrateCamera();
@@ -176,9 +184,8 @@ private:
     bool m_isCapturing;
     
     // 投影仪标定相关
-    int m_sequenceIndex;
-    int m_totalSequences;
-    QStringList m_calibrationPatterns;
+
+
     int m_nProjCaliPoseCounter;  // 投影仪标定Pose计数器
     
     // UI控件

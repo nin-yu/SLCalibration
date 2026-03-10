@@ -46,9 +46,8 @@ SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorC
     , m_capturedImageCount(0)
     , m_targetImageCount(10)
     , m_isCapturing(false)
-    , m_sequenceIndex(0)
-    , m_totalSequences(20)
     , m_nProjCaliPoseCounter(0)
+    // 注意：m_sequenceIndex 和 m_totalSequences 已移除，未使用
 {
     // 解析设备标识
     m_isLeftDevice = tagName.contains("left", Qt::CaseInsensitive);
@@ -326,8 +325,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
     // 通过扫描目录确定下一个 Pose 编号，保证命名连续性
     int currentPoseNumber = getNextPoseNumber(sCalibPath);
-    logMessage(QString("开始执行投影仪标定序列采集 - Pose %1 (目录扫描确定编号)")
-               .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+    logMessage(formatPoseMsg(currentPoseNumber, "开始执行投影仪标定序列采集 (目录扫描确定编号)"));
 
     // 同步更新成员计数器，保持一致性
     m_nProjCaliPoseCounter = currentPoseNumber;
@@ -335,24 +333,20 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
     // 检查相机和投影仪是否已准备好
     if (m_cameraSerialNumber.isEmpty()) {
         showErrorMessage("请先设置相机序列号");
-        logMessage(QString("错误: [Pose %1] 相机序列号未设置，采集取消")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "错误: 相机序列号未设置，采集取消"));
         return;
     }
 
     if (!m_projectorController) {
         showErrorMessage("投影仪控制器未初始化");
-        logMessage(QString("错误: [Pose %1] 投影仪控制器未初始化，采集取消")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "错误: 投影仪控制器未初始化，采集取消"));
         return;
     }
 
     // 确保相机已打开
     if (!ensureCameraOpened()) {
         showErrorMessage(QString("无法打开相机: %1").arg(m_cameraSerialNumber));
-        logMessage(QString("错误: [Pose %1] 无法打开相机 %2，采集取消")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
-                   .arg(m_cameraSerialNumber));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("错误: 无法打开相机 %1，采集取消").arg(m_cameraSerialNumber)));
         return;
     }
 
@@ -390,22 +384,19 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
             m_cameraWidget->updateParameterControls();
         }
 
-        logMessage(QString("[Pose %1] 投影仪标定序列采集流程结束")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "投影仪标定序列采集流程结束"));
     };
 
     // --- 1. 停止连续抓图 (如果正在抓) ---
     if (bWasGrabbing) {
-        logMessage(QString("[Pose %1] 停止正在进行的图像采集...")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "停止正在进行的图像采集..."));
         m_cameraController->StopImageCapture(m_cameraHandle);
         m_isCapturing = false;
         QThread::msleep(100);
     }
 
     // --- 2. 抓取暗场 (Dark Field) - 使用软件触发 ---
-    logMessage(QString("[Pose %1] 正在抓取暗场图像...")
-               .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+    logMessage(formatPoseMsg(currentPoseNumber, "正在抓取暗场图像..."));
 
     // 确保投影仪是黑的
     m_projectorController->pauseProjector(m_deviceTag.toStdString());
@@ -413,28 +404,22 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
     // 设置软件触发模式
     if (!m_cameraController->SetTriggerMode(m_cameraHandle, 1)) {
-        logMessage(QString("失败: [Pose %1] 设置相机软件触发失败，原因: 相机SetTriggerMode返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 设置相机软件触发失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 设置相机软件触发失败，原因: 相机SetTriggerMode返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 设置相机软件触发失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
     if (!m_cameraController->SetTriggerSource(m_cameraHandle, "Software")) {
-        logMessage(QString("失败: [Pose %1] 设置触发源为Software失败，原因: SetTriggerSource返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 设置触发源为Software失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 设置触发源为Software失败，原因: SetTriggerSource返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 设置触发源为Software失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
 
     // 启动相机
     if (!m_cameraController->StartImageCapture(m_cameraHandle)) {
-        logMessage(QString("失败: [Pose %1] 启动相机软触发模式失败，原因: StartImageCapture返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 启动相机 (SW Trigger) 失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 启动相机软触发模式失败，原因: StartImageCapture返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 启动相机 (SW Trigger) 失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
@@ -442,10 +427,8 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
     // 发送软触发并抓取暗场图
     QThread::msleep(100);
     if (!m_cameraController->TriggerSoftware(m_cameraHandle)) {
-        logMessage(QString("失败: [Pose %1] 发送软触发信号失败，原因: TriggerSoftware返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 发送软触发失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 发送软触发信号失败，原因: TriggerSoftware返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 发送软触发失败!").arg(formatPoseNumber(currentPoseNumber)));
         m_cameraController->StopImageCapture(m_cameraHandle);
         cleanupAndRestore();
         return;
@@ -460,10 +443,8 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
             static_cast<unsigned int>(m_imageBufferSize), &frameInfo, 3000);
 
         if (!gotImage || frameInfo.nHeight == 0) {
-            logMessage(QString("失败: [Pose %1] 暗场图像采集超时(3秒)，原因: 相机未在规定时间内返回图像")
-                       .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-            showErrorMessage(QString("Pose %1 采集失败: 抓取暗场图超时(3秒)，请检查相机连接和曝光设置")
-                             .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+            logMessage(formatPoseMsg(currentPoseNumber, "失败: 暗场图像采集超时(3秒)，原因: 相机未在规定时间内返回图像"));
+            showErrorMessage(QString("Pose %1 采集失败: 抓取暗场图超时(3秒)，请检查相机连接和曝光设置").arg(formatPoseNumber(currentPoseNumber)));
             m_cameraController->StopImageCapture(m_cameraHandle);
             cleanupAndRestore();
             return;
@@ -475,57 +456,46 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
             .arg(sCalibPath)
             .arg(currentPoseNumber, 2, 10, QLatin1Char('0'));
         if (!cv::imwrite(sFileName.toStdString(), darkImage)) {
-            logMessage(QString("失败: [Pose %1] 暗场图像保存失败，原因: cv::imwrite失败，请检查磁盘空间和路径权限")
-                       .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-            showErrorMessage(QString("Pose %1 采集失败: 暗场图像保存失败，请检查磁盘空间")
-                             .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+            logMessage(formatPoseMsg(currentPoseNumber, "失败: 暗场图像保存失败，原因: cv::imwrite失败，请检查磁盘空间和路径权限"));
+            showErrorMessage(QString("Pose %1 采集失败: 暗场图像保存失败，请检查磁盘空间").arg(formatPoseNumber(currentPoseNumber)));
             m_cameraController->StopImageCapture(m_cameraHandle);
             cleanupAndRestore();
             return;
         }
-        logMessage(QString("[Pose %1] 暗场图已保存: %2")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(sFileName));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("暗场图已保存: %1").arg(sFileName)));
     }
 
     // 停止软触发抓图，准备切换到硬件触发
     m_cameraController->StopImageCapture(m_cameraHandle);
 
     // --- 3. 配置相机为硬件触发 ---
-    logMessage(QString("[Pose %1] 配置相机为硬件触发模式...")
-               .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+    logMessage(formatPoseMsg(currentPoseNumber, "配置相机为硬件触发模式..."));
 
     if (!m_cameraController->SetTriggerMode(m_cameraHandle, 1)) {
-        logMessage(QString("失败: [Pose %1] 设置相机硬件触发失败，原因: SetTriggerMode返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 设置相机硬件触发失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 设置相机硬件触发失败，原因: SetTriggerMode返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 设置相机硬件触发失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
     if (!m_cameraController->SetTriggerSource(m_cameraHandle, "Line0")) {
-        logMessage(QString("失败: [Pose %1] 设置触发源为Line0失败，原因: SetTriggerSource返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 设置触发源为Line0失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 设置触发源为Line0失败，原因: SetTriggerSource返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 设置触发源为Line0失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
     // 设置下降沿触发
-    m_cameraController->SetTriggerActivation(m_cameraHandle, 1);  // 1 = 下降沿
+    m_cameraController->SetTriggerActivation(m_cameraHandle, 0);  // 1 = 下降沿
 
     // 启动相机 (在硬件触发模式下 "待命")
     if (!m_cameraController->StartImageCapture(m_cameraHandle)) {
-        logMessage(QString("失败: [Pose %1] 启动相机硬触发模式失败，原因: StartImageCapture返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
-        showErrorMessage(QString("Pose %1 采集失败: 启动相机 (HW Trigger) 失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "失败: 启动相机硬触发模式失败，原因: StartImageCapture返回错误"));
+        showErrorMessage(QString("Pose %1 采集失败: 启动相机 (HW Trigger) 失败!").arg(formatPoseNumber(currentPoseNumber)));
         cleanupAndRestore();
         return;
     }
 
     // --- 4. 抓取19张格雷码+相移图 (pattern 6 = Cali) ---
-    logMessage(QString("[Pose %1] 正在抓取19张标定图...")
-               .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+    logMessage(formatPoseMsg(currentPoseNumber, "正在抓取19张标定图..."));
 
     // 从投影仪控制组件获取参数
     int triggerMode = 1;  // 硬件触发模式
@@ -535,19 +505,14 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
     if (m_projectorWidget) {
         patternIndex = m_projectorWidget->getPatternIndex();
         exposureTime = m_projectorWidget->getExposureTime();
-        logMessage(QString("[Pose %1] 使用投影仪参数 - 图案: %2, 曝光: %3μs")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
-                   .arg(patternIndex).arg(exposureTime));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("使用投影仪参数 - 图案: %1, 曝光: %2μs").arg(patternIndex).arg(exposureTime)));
     } else {
-        logMessage(QString("[Pose %1] 警告: 投影仪控制组件未设置，使用默认参数")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')));
+        logMessage(formatPoseMsg(currentPoseNumber, "警告: 投影仪控制组件未设置，使用默认参数"));
     }
 
     if (!m_projectorController->sendAndPlayProjector(m_deviceTag.toStdString(), triggerMode, patternIndex, exposureTime)) {
-        logMessage(QString("失败: [Pose %1] 发送投影仪序列失败，原因: sendAndPlayProjector(Pattern=%2)返回错误")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(patternIndex));
-        showErrorMessage(QString("Pose %1 采集失败: 发送投影仪序列 (Pattern=%2) 失败!")
-                         .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(patternIndex));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("失败: 发送投影仪序列失败，原因: sendAndPlayProjector(Pattern=%1)返回错误").arg(patternIndex)));
+        showErrorMessage(QString("Pose %1 采集失败: 发送投影仪序列 (Pattern=%2) 失败!").arg(formatPoseNumber(currentPoseNumber)).arg(patternIndex));
         m_cameraController->StopImageCapture(m_cameraHandle);
         cleanupAndRestore();
         return;
@@ -555,8 +520,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
     // 循环抓取19张图 (1白 + 18张格雷码/相移)，每张设置3秒超时
     for (int i = 0; i < 19; i++) {
-        logMessage(QString("[Pose %1] 正在抓取标定图 %2/19...")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(i + 1));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("正在抓取标定图 %1/19...").arg(i + 1)));
 
         // 命名规则:
         // 0: White (白场)
@@ -573,7 +537,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
         QString sFileName = QString("%1/Pose_%2_Img_%3_%4.bmp")
             .arg(sCalibPath)
-            .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
+            .arg(formatPoseNumber(currentPoseNumber))
             .arg(i + 1, 2, 10, QLatin1Char('0'))
             .arg(sPatternName);
 
@@ -585,9 +549,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
         if (!gotImage || frameInfo.nHeight == 0) {
             m_projectorController->pauseProjector(m_deviceTag.toStdString());
-            logMessage(QString("失败: [Pose %1] 第 %2/19 张标定图采集超时(3秒)，原因: 图案[%3]相机未返回图像，请检查投影仪触发信号和相机连接")
-                       .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
-                       .arg(i + 1).arg(sPatternName));
+            logMessage(formatPoseMsg(currentPoseNumber, QString("失败: 第 %1/19 张标定图采集超时(3秒)，原因: 图案[%2]相机未返回图像，请检查投影仪触发信号和相机连接").arg(i + 1).arg(sPatternName)));
             showErrorMessage(QString("Pose %1 采集失败!\n"
                                      "第 %2/19 张图像(%3)采集超时(3秒)\n"
                                      "可能原因:\n"
@@ -595,7 +557,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
                                      "  - 相机曝光时间超过3秒\n"
                                      "  - 硬件连接异常\n"
                                      "本次 Pose 采集已终止，已采集的图像将被保留。")
-                             .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
+                             .arg(formatPoseNumber(currentPoseNumber))
                              .arg(i + 1).arg(sPatternName));
             m_cameraController->StopImageCapture(m_cameraHandle);
             cleanupAndRestore();
@@ -606,18 +568,15 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
         cv::Mat image(frameInfo.nHeight, frameInfo.nWidth, CV_8UC1, m_pImageBuffer);
         if (!cv::imwrite(sFileName.toStdString(), image)) {
             m_projectorController->pauseProjector(m_deviceTag.toStdString());
-            logMessage(QString("失败: [Pose %1] 第 %2/19 张图像(%3)保存失败，原因: cv::imwrite失败，请检查磁盘空间和路径权限")
-                       .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
-                       .arg(i + 1).arg(sPatternName));
+            logMessage(formatPoseMsg(currentPoseNumber, QString("失败: 第 %1/19 张图像(%2)保存失败，原因: cv::imwrite失败，请检查磁盘空间和路径权限").arg(i + 1).arg(sPatternName)));
             showErrorMessage(QString("Pose %1 采集失败: 第 %2/19 张图像(%3)保存失败，请检查磁盘空间")
-                             .arg(currentPoseNumber, 2, 10, QLatin1Char('0'))
+                             .arg(formatPoseNumber(currentPoseNumber))
                              .arg(i + 1).arg(sPatternName));
             m_cameraController->StopImageCapture(m_cameraHandle);
             cleanupAndRestore();
             return;
         }
-        logMessage(QString("[Pose %1] 图像已保存(%2/19): %3")
-                   .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(i + 1).arg(sFileName));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("图像已保存(%1/19): %2").arg(i + 1).arg(sFileName)));
 
         // 更新进度
         ui->progressBar_ProjectorCalibration->setValue((i + 1) * 100 / 19);
@@ -630,7 +589,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
     m_cameraController->StopImageCapture(m_cameraHandle);
 
     QString successMsg = QString("Pose %1 采集成功!\n共20张图像 (1暗+1白+18格雷码/相移)\n已保存到:\n%2")
-        .arg(currentPoseNumber, 2, 10, QLatin1Char('0')).arg(sCalibPath);
+        .arg(formatPoseNumber(currentPoseNumber)).arg(sCalibPath);
     logMessage(successMsg);
     showSuccessMessage(successMsg);
 
@@ -1606,6 +1565,28 @@ void SingleCalibrationWidget::logMessage(const QString& message)
     emit statusUpdated(message);
 }
 
+// ==================== 新增工具函数 ====================
+
+void SingleCalibrationWidget::logAndShow(const QString& message, bool isError)
+{
+    logMessage(message);
+    if (isError) {
+        showErrorMessage(message);
+    } else {
+        showSuccessMessage(message);
+    }
+}
+
+QString SingleCalibrationWidget::formatPoseMsg(int poseNumber, const QString& message) const
+{
+    return QString("[Pose %1] %2").arg(formatPoseNumber(poseNumber)).arg(message);
+}
+
+QString SingleCalibrationWidget::formatPoseNumber(int poseNumber) const
+{
+    return CalibrationUtils::formatPoseNumber(poseNumber);
+}
+
 // ==================== 软触发图像采集函数 ====================
 
 bool SingleCalibrationWidget::captureSingleImageWithSoftwareTrigger()
@@ -1705,49 +1686,26 @@ bool SingleCalibrationWidget::captureImageAndReturn(cv::Mat& outImage)
 }
 
 // ==================== 图像存储函数 ====================
+// 注意：以下路径管理函数现在委托给 CalibrationUtils
 
 QString SingleCalibrationWidget::getBaseCalibrationPath() const
 {
-    // 获取应用程序所在目录
-    QString appPath = QCoreApplication::applicationDirPath();
-    QString basePath = appPath + "/CalibrateData";
-
-    // 确保基础目录存在
-    createDirectoryIfNotExists(basePath);
-
-    return basePath;
+    return CalibrationUtils::getBaseCalibrationPath();
 }
 
 QString SingleCalibrationWidget::getDevicePath() const
 {
-    QString basePath = getBaseCalibrationPath();
-    QString deviceFolder = m_isLeftDevice ? "LeftSL" : "RightSL";
-    QString devicePath = basePath + "/" + deviceFolder;
-
-    // 确保设备目录存在
-    createDirectoryIfNotExists(devicePath);
-
-    return devicePath;
+    return CalibrationUtils::getDevicePath(m_isLeftDevice);
 }
 
 QString SingleCalibrationWidget::getCalibrationTypePath(const QString& calibType) const
 {
-    QString devicePath = getDevicePath();
-    QString typePath = devicePath + "/" + calibType;
-
-    // 确保标定类型目录存在
-    createDirectoryIfNotExists(typePath);
-
-    return typePath;
+    return CalibrationUtils::getCalibrationTypePath(m_isLeftDevice, calibType);
 }
 
 bool SingleCalibrationWidget::createDirectoryIfNotExists(const QString& path) const
 {
-    QDir dir(path);
-    if (!dir.exists()) {
-        return dir.mkpath(".");
-    }
-    return true;
+    return CalibrationUtils::createDirectoryIfNotExists(path);
 }
 
 bool SingleCalibrationWidget::saveCalibrationImage(const cv::Mat& image, const QString& calibType, int imageIndex)
@@ -1757,33 +1715,19 @@ bool SingleCalibrationWidget::saveCalibrationImage(const cv::Mat& image, const Q
         return false;
     }
 
-    // 获取存储路径
-    QString typePath = getCalibrationTypePath(calibType);
-
-    // 生成文件名
-    QString fileName = QString("image_%1_%2.jpg")
-                      .arg(imageIndex, 3, 10, QLatin1Char('0'))
-                      .arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss"));
-    QString fullPath = typePath + "/" + fileName;
-
-    // 保存图像
-    std::vector<int> compression_params;
-    compression_params.push_back(cv::IMWRITE_JPEG_QUALITY);
-    compression_params.push_back(95); // JPEG质量95%
-
-    try {
-        bool success = cv::imwrite(fullPath.toStdString(), image, compression_params);
-        if (success) {
-            logMessage(QString("图像已保存: %1").arg(fullPath));
-            return true;
-        } else {
-            logMessage(QString("图像保存失败: %1").arg(fullPath));
-            return false;
-        }
-    } catch (const cv::Exception& ex) {
-        logMessage(QString("OpenCV保存图像异常: %1").arg(ex.what()));
-        return false;
+    bool success = CalibrationUtils::saveCalibrationImage(image, calibType, imageIndex, m_isLeftDevice);
+    
+    if (success) {
+        QString typePath = getCalibrationTypePath(calibType);
+        QString fileName = QString("image_%1_%2.jpg")
+                          .arg(imageIndex, 3, 10, QLatin1Char('0'))
+                          .arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss"));
+        logMessage(QString("图像已保存: %1/%2").arg(typePath).arg(fileName));
+    } else {
+        logMessage("图像保存失败");
     }
+    
+    return success;
 }
 
 bool SingleCalibrationWidget::saveImageToCalibrationPath(const cv::Mat& image, const QString& calibrationPath)
@@ -1818,14 +1762,9 @@ bool SingleCalibrationWidget::saveCornerDetectionResult(
     bool detectionSuccess,
     const QString& calibrationPath)
 {
-    // 获取图片所在目录
+    // 确保 result 目录存在
     QFileInfo imageFileInfo(imagePath);
-    QString imageDirPath = imageFileInfo.absolutePath();
-    
-    // 构建 result 文件夹路径
-    QString resultDirPath = imageDirPath + "/result";
-    
-    // 如果 result 文件夹不存在，自动创建
+    QString resultDirPath = imageFileInfo.absolutePath() + "/result";
     QDir resultDir(resultDirPath);
     if (!resultDir.exists()) {
         if (!resultDir.mkpath(".")) {
@@ -1835,100 +1774,29 @@ bool SingleCalibrationWidget::saveCornerDetectionResult(
         logMessage(QString("已创建结果目录: %1").arg(resultDirPath));
     }
     
-    // 复制图像用于绘制（避免修改原图）
-    cv::Mat resultImage;
-    if (image.channels() == 1) {
-        // 灰度图转彩色，便于绘制彩色标记
-        cv::cvtColor(image, resultImage, cv::COLOR_GRAY2BGR);
+    // 委托给 CalibrationUtils 保存角点检测结果
+    bool success = CalibrationUtils::saveCornerDetectionResult(
+        imagePath, image, corners, detectionSuccess, m_patternCols, m_patternRows);
+    
+    if (success) {
+        QString resultFilePath = resultDirPath + "/" + imageFileInfo.completeBaseName() + "_corners.jpg";
+        logMessage(QString("角点检测结果图像已保存: %1").arg(resultFilePath));
     } else {
-        resultImage = image.clone();
+        logMessage("角点检测结果图像保存失败");
     }
     
-    // 生成结果文件名（基于图片文件名）
-    QString baseName = imageFileInfo.completeBaseName();
-    QString resultFileName = QString("%1_corners.jpg").arg(baseName);
-    QString resultFilePath = resultDirPath + "/" + resultFileName;
-    
-    // 根据检测结果绘制不同标记
-    if (detectionSuccess && !corners.empty()) {
-        // 绘制棋盘格角点
-        cv::drawChessboardCorners(resultImage, 
-                                   cv::Size(m_patternCols, m_patternRows),
-                                   corners, 
-                                   true);
-        
-        // 在图像左上角添加检测成功标识
-        std::string statusText = "Corners: " + std::to_string(corners.size()) + " [OK]";
-        cv::putText(resultImage, statusText, 
-                    cv::Point(10, 30), 
-                    cv::FONT_HERSHEY_SIMPLEX, 0.8, 
-                    cv::Scalar(0, 255, 0), 2);
-    } else {
-        // 检测失败，在图像上标注
-        cv::putText(resultImage, "Corner Detection FAILED", 
-                    cv::Point(10, 30), 
-                    cv::FONT_HERSHEY_SIMPLEX, 0.8, 
-                    cv::Scalar(0, 0, 255), 2);
-    }
-    
-    // 保存结果图像
-    std::vector<int> compression_params;
-    compression_params.push_back(cv::IMWRITE_JPEG_QUALITY);
-    compression_params.push_back(95);
-    
-    try {
-        bool success = cv::imwrite(resultFilePath.toStdString(), resultImage, compression_params);
-        if (success) {
-            logMessage(QString("角点检测结果图像已保存: %1").arg(resultFilePath));
-            return true;
-        } else {
-            logMessage(QString("角点检测结果图像保存失败: %1").arg(resultFilePath));
-            return false;
-        }
-    } catch (const cv::Exception& ex) {
-        logMessage(QString("保存角点检测结果图像异常: %1").arg(ex.what()));
-        return false;
-    }
+    return success;
 }
 
 // ==================== 坐标系标定目录管理函数 ====================
 
 bool SingleCalibrationWidget::clearCoordinateDirectory()
 {
-    QString coordPath = getCalibrationTypePath("Coordinate");
-    QStringList imageFilters;
-    imageFilters << "*.jpg" << "*.bmp" << "*.png" << "*.tiff" << "*.tif";
-
-    // 清空 Coordinate 主目录中的图像
-    QDir dir(coordPath);
-    QFileInfoList imageFiles = dir.entryInfoList(imageFilters, QDir::Files);
-    for (const QFileInfo& fi : imageFiles) {
-        if (!QFile::remove(fi.absoluteFilePath())) {
-            logMessage(QString("警告: 无法删除旧坐标系标定图像: %1").arg(fi.fileName()));
-        }
+    bool success = CalibrationUtils::clearCoordinateDirectory(m_isLeftDevice);
+    if (success) {
+        logMessage("坐标系标定目录已清空");
     }
-
-    // 清空 Coordinate/result 子目录中的图像
-    QString resultPath = coordPath + "/result";
-    QDir resultDir(resultPath);
-    if (resultDir.exists()) {
-        QFileInfoList resultFiles = resultDir.entryInfoList(imageFilters, QDir::Files);
-        for (const QFileInfo& fi : resultFiles) {
-            if (!QFile::remove(fi.absoluteFilePath())) {
-                logMessage(QString("警告: 无法删除旧角点检测结果图像: %1").arg(fi.fileName()));
-            }
-        }
-    } else {
-        // 创建 result 子目录
-        if (!resultDir.mkpath(".")) {
-            logMessage(QString("错误: 无法创建坐标系标定结果目录: %1").arg(resultPath));
-            return false;
-        }
-        logMessage(QString("已创建坐标系标定结果目录: %1").arg(resultPath));
-    }
-
-    logMessage("坐标系标定目录已清空");
-    return true;
+    return success;
 }
 
 bool SingleCalibrationWidget::saveCoordinateImage(const cv::Mat& image, QString& savedImagePath)
@@ -1938,62 +1806,21 @@ bool SingleCalibrationWidget::saveCoordinateImage(const cv::Mat& image, QString&
         return false;
     }
 
-    QString coordPath = getCalibrationTypePath("Coordinate");
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
-    QString fileName = QString("coordinate_image_%1.bmp").arg(timestamp);
-    savedImagePath = coordPath + "/" + fileName;
-
-    try {
-        bool success = cv::imwrite(savedImagePath.toStdString(), image);
-        if (success) {
-            logMessage(QString("坐标系标定图像已保存: %1").arg(savedImagePath));
-        } else {
-            logMessage(QString("坐标系标定图像保存失败: %1").arg(savedImagePath));
-            savedImagePath.clear();
-        }
-        return success;
-    } catch (const cv::Exception& ex) {
-        logMessage(QString("保存坐标系标定图像异常: %1").arg(ex.what()));
-        savedImagePath.clear();
-        return false;
+    bool success = CalibrationUtils::saveCoordinateImage(image, m_isLeftDevice, savedImagePath);
+    
+    if (success) {
+        logMessage(QString("坐标系标定图像已保存: %1").arg(savedImagePath));
+    } else {
+        logMessage("坐标系标定图像保存失败");
     }
+    
+    return success;
 }
 
 // ==================== 投影仪标定图像采集辅助函数 ====================
 
 int SingleCalibrationWidget::getNextPoseNumber(const QString& projectorCalibPath) const
 {
-    // 扫描目录，查找所有符合 Pose_XX_* 命名规则的图像文件，返回最大编号+1
-    // 若目录中无任何 Pose 文件，则返回 1（从 Pose_01 开始）
-    QDir dir(projectorCalibPath);
-    if (!dir.exists()) {
-        return 1;
-    }
-
-    QStringList filters;
-    filters << "Pose_*.bmp" << "Pose_*.jpg" << "Pose_*.png";
-    QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files);
-
-    if (fileList.isEmpty()) {
-        return 1;
-    }
-
-    // 解析所有文件名中的 Pose 编号，找出最大值
-    QRegularExpression poseRegex("^Pose_(\\d+)_");
-    int maxPoseNumber = 0;
-
-    for (const QFileInfo& fi : fileList) {
-        QRegularExpressionMatch match = poseRegex.match(fi.fileName());
-        if (match.hasMatch()) {
-            int poseNum = match.captured(1).toInt();
-            if (poseNum > maxPoseNumber) {
-                maxPoseNumber = poseNum;
-            }
-        }
-    }
-
-    // 下一个 Pose 编号 = 最大现有编号 + 1
-    int nextPoseNumber = maxPoseNumber + 1;
-    return nextPoseNumber;
+    return CalibrationUtils::getNextPoseNumber(projectorCalibPath);
 }
 
