@@ -203,6 +203,54 @@ QSqlQueryModel* QADbManager::createReportModel(const QDate& fromDate,
     return model;
 }
 
+bool QADbManager::getLatestCalibrationRecord(const QString& deviceSide,
+                                             CalibrationRecord& outRecord,
+                                             const QDateTime& createdAfter)
+{
+    if (!m_initialized || deviceSide.isEmpty()) {
+        return false;
+    }
+
+    QString sql =
+        "SELECT id, calibration_date, device_side, camera_sn, projector_tag, "
+        "calib_file_path, rms_proj, rms_stereo, epi_mean_px, epi_median_px, details, created_at "
+        "FROM calibration_records WHERE device_side = :side";
+    if (createdAfter.isValid()) {
+        sql += " AND created_at >= :createdAfter";
+    }
+    sql += " ORDER BY created_at DESC, id DESC LIMIT 1";
+
+    QSqlQuery query(m_db);
+    query.prepare(sql);
+    query.bindValue(":side", deviceSide);
+    if (createdAfter.isValid()) {
+        query.bindValue(":createdAfter", createdAfter.toString("yyyy-MM-dd hh:mm:ss"));
+    }
+
+    if (!query.exec()) {
+        qDebug() << "查询最新标定记录失败:" << query.lastError().text();
+        return false;
+    }
+
+    if (!query.next()) {
+        return false;
+    }
+
+    outRecord.id = query.value("id").toInt();
+    outRecord.calibrationDate = QDate::fromString(query.value("calibration_date").toString(), Qt::ISODate);
+    outRecord.deviceSide = query.value("device_side").toString();
+    outRecord.cameraSN = query.value("camera_sn").toString();
+    outRecord.projectorTag = query.value("projector_tag").toString();
+    outRecord.calibFilePath = query.value("calib_file_path").toString();
+    outRecord.rmsProj = query.value("rms_proj").toDouble();
+    outRecord.rmsStereo = query.value("rms_stereo").toDouble();
+    outRecord.epiMeanPx = query.value("epi_mean_px").toDouble();
+    outRecord.epiMedianPx = query.value("epi_median_px").toDouble();
+    outRecord.details = query.value("details").toString();
+    outRecord.createdAt = QDateTime::fromString(query.value("created_at").toString(), "yyyy-MM-dd hh:mm:ss");
+    return true;
+}
+
 int QADbManager::getReportCount() const
 {
     if (!m_initialized) return 0;

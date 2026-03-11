@@ -66,7 +66,31 @@ bool MainWindow::createDefaultConfigFile(const QString& filePath)
     out << "# 左侧投影仪tagname\n";
     out << "LeftTagName=LCR2@dibh_left\n";
     out << "# 右侧投影仪tagname\n";
-    out << "RightTagName=LCR2@dibh_right\n";
+    out << "RightTagName=LCR2@dibh_right\n\n";
+
+    out << "[QA]\n";
+    out << "# 日检数据目录（相对路径将基于程序目录）\n";
+    out << "DailyQARoot=QAData\n";
+    out << "# 日检模式：pose_batch（手动拷图）\n";
+    out << "DailyMode=pose_batch\n";
+    out << "# 日检棋盘格参数\n";
+    out << "PatternRows=20\n";
+    out << "PatternCols=20\n";
+    out << "SquareSizeMm=10.0\n";
+    out << "# 日检分项阈值\n";
+    out << "CameraReprojFailThresholdPx=0.8\n";
+    out << "DailyRmsProjFailThreshold=0.8\n";
+    out << "MinValidPoseCount=1\n";
+    out << "# 结构光参数（应与采集模板一致）\n";
+    out << "ProjectorWidth=912\n";
+    out << "ProjectorHeight=1140\n";
+    out << "ProjectorFrequency=16\n";
+    out << "GrayCodeBits=5\n";
+    out << "PhaseShiftSteps=4\n";
+    out << "# 月检失败阈值\n";
+    out << "MonthlyRmsProjFailThreshold=0.8\n";
+    out << "MonthlyRmsStereoFailThreshold=0.8\n";
+    out << "MonthlyEpiMeanFailThresholdPx=1.0\n";
     
     file.close();
     return true;

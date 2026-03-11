@@ -6,6 +6,23 @@
 #include <QSqlQuery>
 #include <QSqlQueryModel>
 #include <QDate>
+#include <QDateTime>
+
+struct CalibrationRecord
+{
+    int id = -1;
+    QDate calibrationDate;
+    QString deviceSide;
+    QString cameraSN;
+    QString projectorTag;
+    QString calibFilePath;
+    double rmsProj = 0.0;
+    double rmsStereo = 0.0;
+    double epiMeanPx = -1.0;
+    double epiMedianPx = -1.0;
+    QString details;
+    QDateTime createdAt;
+};
 
 class QADbManager
 {
@@ -42,6 +59,10 @@ public:
                                       const QDate& toDate,
                                       const QString& deviceSide = QString(),
                                       const QString& reportType = QString());
+
+    bool getLatestCalibrationRecord(const QString& deviceSide,
+                                    CalibrationRecord& outRecord,
+                                    const QDateTime& createdAfter = QDateTime());
 
     int getReportCount() const;
 
