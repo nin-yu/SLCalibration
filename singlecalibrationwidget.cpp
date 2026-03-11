@@ -14,6 +14,7 @@
 #include <fstream>
 #include <iomanip>
 #include <QTextStream>
+#include <cmath>
 
 SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorCtrl,
                                                CCameraController* cameraCtrl,
@@ -48,6 +49,8 @@ SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorC
     , m_sequenceIndex(0)
     , m_totalSequences(20)
     , m_nProjCaliPoseCounter(0)
+    , m_buttonQACameraRms(nullptr)
+    , m_buttonQAProjectorRms(nullptr)
 {
     // 解析设备标识
     m_isLeftDevice = tagName.contains("left", Qt::CaseInsensitive);
@@ -55,6 +58,8 @@ SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorC
 
     // 设置UI
     ui->setupUi(this);
+    setupQaButtons();
+    refreshQaButtonStates();
 
     // 初始化界面元素
     // initializeUIElements();
@@ -180,6 +185,121 @@ void SingleCalibrationWidget::setupControllers()
     if (!m_cameraController) {
         logMessage("警告: 相机控制器未初始化");
     }
+}
+
+void SingleCalibrationWidget::setupQaButtons()
+{
+    if (ui->horizontalLayout_CameraButtons && !m_buttonQACameraRms) {
+        m_buttonQACameraRms = new QPushButton("QA RMS", ui->groupBox_CameraCalibration);
+        m_buttonQACameraRms->setObjectName("pushButton_QACameraRms");
+        m_buttonQACameraRms->setToolTip("使用当前侧相机图像与相机标定文件计算重投影RMS");
+        ui->horizontalLayout_CameraButtons->addWidget(m_buttonQACameraRms);
+
+        connect(m_buttonQACameraRms, &QPushButton::clicked,
+                this, &SingleCalibrationWidget::onCameraQaRmsClicked);
+    }
+
+    if (ui->gridLayout_ProjectorButtons && !m_buttonQAProjectorRms) {
+        m_buttonQAProjectorRms = new QPushButton("QA RMS", ui->groupBox_ProjectorCalibration);
+        m_buttonQAProjectorRms->setObjectName("pushButton_QAProjectorRms");
+        m_buttonQAProjectorRms->setToolTip("使用当前侧投影仪图像与投影仪标定文件计算重投影RMS");
+        ui->gridLayout_ProjectorButtons->addWidget(m_buttonQAProjectorRms, 2, 0, 1, 2);
+
+        connect(m_buttonQAProjectorRms, &QPushButton::clicked,
+                this, &SingleCalibrationWidget::onProjectorQaRmsClicked);
+    }
+}
+
+QString SingleCalibrationWidget::getCameraParamsFilePath() const
+{
+    const QString sideCode = m_isLeftDevice ? "Left" : "Right";
+    return getCalibrationTypePath("Camera") + QString("/CameraParams_%1.xml").arg(sideCode);
+}
+
+QString SingleCalibrationWidget::getProjectorParamsFilePath() const
+{
+    const QString sideCode = m_isLeftDevice ? "Left" : "Right";
+    return getCalibrationTypePath("Projector") + QString("/ProjectorParams_%1.xml").arg(sideCode);
+}
+
+void SingleCalibrationWidget::refreshQaButtonStates()
+{
+    const bool hasCameraCalibFile = QFileInfo::exists(getCameraParamsFilePath());
+    const bool hasProjectorCalibFile = QFileInfo::exists(getProjectorParamsFilePath());
+
+    if (m_buttonQACameraRms) {
+        m_buttonQACameraRms->setEnabled(hasCameraCalibFile);
+    }
+
+    if (m_buttonQAProjectorRms) {
+        m_buttonQAProjectorRms->setEnabled(hasProjectorCalibFile);
+    }
+}
+
+void SingleCalibrationWidget::onCameraQaRmsClicked()
+{
+    if (!m_buttonQACameraRms) {
+        return;
+    }
+
+    m_buttonQACameraRms->setEnabled(false);
+    logMessage("开始执行相机QA重投影误差计算...");
+
+    double rms = 0.0;
+    int totalImages = 0;
+    int validImages = 0;
+    int validPoints = 0;
+    QString errorMessage;
+
+    const bool success = computeCameraQaRms(rms, totalImages, validImages, validPoints, errorMessage);
+    if (success) {
+        const QString result = QString("相机QA RMS计算完成\n侧别: %1\n总图像数: %2\n有效图像数: %3\n有效角点数: %4\n重投影RMS: %5 像素")
+                                   .arg(m_sideIdentifier)
+                                   .arg(totalImages)
+                                   .arg(validImages)
+                                   .arg(validPoints)
+                                   .arg(rms, 0, 'f', 6);
+        showSuccessMessage(result);
+        logMessage(result);
+    } else {
+        showErrorMessage(errorMessage);
+        logMessage(QString("相机QA RMS计算失败: %1").arg(errorMessage));
+    }
+
+    refreshQaButtonStates();
+}
+
+void SingleCalibrationWidget::onProjectorQaRmsClicked()
+{
+    if (!m_buttonQAProjectorRms) {
+        return;
+    }
+
+    m_buttonQAProjectorRms->setEnabled(false);
+    logMessage("开始执行投影仪QA重投影误差计算...");
+
+    double rms = 0.0;
+    int totalPoses = 0;
+    int validPoses = 0;
+    int validPoints = 0;
+    QString errorMessage;
+
+    const bool success = computeProjectorQaRms(rms, totalPoses, validPoses, validPoints, errorMessage);
+    if (success) {
+        const QString result = QString("投影仪QA RMS计算完成\n侧别: %1\n总Pose数: %2\n有效Pose数: %3\n有效角点数: %4\n重投影RMS: %5 像素")
+                                   .arg(m_sideIdentifier)
+                                   .arg(totalPoses)
+                                   .arg(validPoses)
+                                   .arg(validPoints)
+                                   .arg(rms, 0, 'f', 6);
+        showSuccessMessage(result);
+        logMessage(result);
+    } else {
+        showErrorMessage(errorMessage);
+        logMessage(QString("投影仪QA RMS计算失败: %1").arg(errorMessage));
+    }
+
+    refreshQaButtonStates();
 }
 
 // ==================== 相机控制函数 ====================
@@ -882,6 +1002,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationCoordination_clicked
                       .arg(projCalibPath));
 
     updateStatus("坐标系标定完成");
+    refreshQaButtonStates();
 
     // 发射标定完成信号
     emit calibrationCompleted(true, "Coordination calibration completed successfully");
@@ -966,6 +1087,7 @@ void SingleCalibrationWidget::on_pushButton_deleteImagesCamera_clicked()
     logMessage(QString("相机标定图像清理完成 - 删除: %1, 失败: %2").arg(deletedCount).arg(failedCount));
 
     updateStatus("相机标定图像已清空");
+    refreshQaButtonStates();
 }
 
 void SingleCalibrationWidget::on_pushButton_deleteImagesProjector_clicked()
@@ -1053,6 +1175,7 @@ void SingleCalibrationWidget::on_pushButton_deleteImagesProjector_clicked()
     logMessage(QString("投影仪标定图像清理完成 - 删除: %1, 失败: %2").arg(deletedCount).arg(failedCount));
 
     updateStatus("投影仪标定图像已清空");
+    refreshQaButtonStates();
 }
 
 // ==================== 标定控制函数 ====================
@@ -1277,6 +1400,10 @@ bool SingleCalibrationWidget::calibrateCamera()
         }
     }
 
+    if (bSaveSuccess) {
+        refreshQaButtonStates();
+    }
+
     // --- 8. 显示标定结果 ---
     QString resultMsg = QString("Camera calibration completed!\n\n"
                                "--- Statistics ---\n"
@@ -1324,6 +1451,328 @@ bool SingleCalibrationWidget::calibrateCamera()
 
     // 发射标定完成信号
     emit calibrationCompleted(true, QString("Camera calibration completed successfully - RMS: %1").arg(rms, 0, 'f', 3));
+
+    return true;
+}
+
+bool SingleCalibrationWidget::computeCameraQaRms(double& rms,
+                                                 int& totalImages,
+                                                 int& validImages,
+                                                 int& validPoints,
+                                                 QString& errorMessage)
+{
+    rms = 0.0;
+    totalImages = 0;
+    validImages = 0;
+    validPoints = 0;
+    errorMessage.clear();
+
+    const QString cameraParamsPath = getCameraParamsFilePath();
+    if (!QFileInfo::exists(cameraParamsPath)) {
+        errorMessage = QString("未找到相机标定文件: %1").arg(cameraParamsPath);
+        return false;
+    }
+
+    cv::Mat cameraMatrix;
+    cv::Mat distCoeffs;
+    cv::FileStorage fs(cameraParamsPath.toStdString(), cv::FileStorage::READ);
+    if (!fs.isOpened()) {
+        errorMessage = QString("无法打开相机标定文件: %1").arg(cameraParamsPath);
+        return false;
+    }
+    fs["cameraMatrix"] >> cameraMatrix;
+    if (cameraMatrix.empty()) {
+        fs["camMatrix"] >> cameraMatrix;
+    }
+    fs["distCoeffs"] >> distCoeffs;
+    if (distCoeffs.empty()) {
+        fs["camDist"] >> distCoeffs;
+    }
+    fs.release();
+
+    if (cameraMatrix.empty() || distCoeffs.empty()) {
+        errorMessage = "相机标定文件中缺少cameraMatrix或distCoeffs";
+        return false;
+    }
+
+    if (cameraMatrix.type() != CV_64F) {
+        cameraMatrix.convertTo(cameraMatrix, CV_64F);
+    }
+    if (distCoeffs.type() != CV_64F) {
+        distCoeffs.convertTo(distCoeffs, CV_64F);
+    }
+
+    const cv::Size boardSize(m_patternCols, m_patternRows);
+    if (boardSize.width <= 0 || boardSize.height <= 0 || m_squareSizeParam <= 0.0f) {
+        errorMessage = "棋盘格参数无效，无法执行QA计算";
+        return false;
+    }
+
+    std::vector<cv::Point3f> objectPoints;
+    objectPoints.reserve(static_cast<size_t>(boardSize.width * boardSize.height));
+    for (int i = 0; i < boardSize.height; ++i) {
+        for (int j = 0; j < boardSize.width; ++j) {
+            objectPoints.emplace_back(j * m_squareSizeParam, i * m_squareSizeParam, 0.0f);
+        }
+    }
+
+    const QString calibrationPath = getCalibrationTypePath("Camera");
+    QDir dir(calibrationPath);
+    QStringList filters;
+    filters << "*.jpg" << "*.bmp" << "*.png" << "*.tiff" << "*.tif";
+    const QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+
+    totalImages = fileList.size();
+    if (totalImages == 0) {
+        errorMessage = QString("在路径 %1 下未找到相机标定图像").arg(calibrationPath);
+        return false;
+    }
+
+    double sumSquaredError = 0.0;
+
+    for (const QFileInfo& fileInfo : fileList) {
+        const QString imagePath = fileInfo.absoluteFilePath();
+        cv::Mat image = cv::imread(imagePath.toStdString(), cv::IMREAD_UNCHANGED);
+        if (image.empty()) {
+            continue;
+        }
+
+        cv::Mat gray;
+        if (image.channels() == 1) {
+            gray = image;
+        } else if (image.channels() == 3) {
+            cv::cvtColor(image, gray, cv::COLOR_BGR2GRAY);
+        } else if (image.channels() == 4) {
+            cv::cvtColor(image, gray, cv::COLOR_BGRA2GRAY);
+        } else {
+            continue;
+        }
+
+        std::vector<cv::Point2f> imageCorners;
+        const bool found = cv::findChessboardCorners(
+            gray, boardSize, imageCorners,
+            cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
+        if (!found) {
+            continue;
+        }
+
+        cv::cornerSubPix(gray, imageCorners, cv::Size(11, 11), cv::Size(-1, -1),
+                         cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.001));
+
+        cv::Mat rvec;
+        cv::Mat tvec;
+        const bool pnpSuccess = cv::solvePnP(objectPoints, imageCorners, cameraMatrix, distCoeffs, rvec, tvec);
+        if (!pnpSuccess) {
+            continue;
+        }
+
+        std::vector<cv::Point2f> reprojectedCorners;
+        cv::projectPoints(objectPoints, rvec, tvec, cameraMatrix, distCoeffs, reprojectedCorners);
+        if (reprojectedCorners.size() != imageCorners.size()) {
+            continue;
+        }
+
+        validImages++;
+        for (size_t i = 0; i < imageCorners.size(); ++i) {
+            const double dx = static_cast<double>(imageCorners[i].x) - static_cast<double>(reprojectedCorners[i].x);
+            const double dy = static_cast<double>(imageCorners[i].y) - static_cast<double>(reprojectedCorners[i].y);
+            sumSquaredError += dx * dx + dy * dy;
+            validPoints++;
+        }
+    }
+
+    if (validPoints == 0) {
+        errorMessage = "未在图像中检测到可用于QA计算的有效角点";
+        return false;
+    }
+
+    rms = std::sqrt(sumSquaredError / static_cast<double>(validPoints));
+    if (!std::isfinite(rms)) {
+        errorMessage = "RMS计算结果无效";
+        return false;
+    }
+
+    return true;
+}
+
+bool SingleCalibrationWidget::computeProjectorQaRms(double& rms,
+                                                    int& totalPoses,
+                                                    int& validPoses,
+                                                    int& validPoints,
+                                                    QString& errorMessage)
+{
+    rms = 0.0;
+    totalPoses = 0;
+    validPoses = 0;
+    validPoints = 0;
+    errorMessage.clear();
+
+    if (!m_calibrator) {
+        errorMessage = "标定器未初始化";
+        return false;
+    }
+
+    const QString projectorParamsPath = getProjectorParamsFilePath();
+    if (!QFileInfo::exists(projectorParamsPath)) {
+        errorMessage = QString("未找到投影仪标定文件: %1").arg(projectorParamsPath);
+        return false;
+    }
+
+    CalibrationData calibData;
+    if (!m_calibrator->loadCalibrationData(calibData, projectorParamsPath.toStdString())) {
+        errorMessage = QString("无法加载投影仪标定文件: %1").arg(projectorParamsPath);
+        return false;
+    }
+
+    if (calibData.camMatrix.empty() || calibData.camDist.empty() ||
+        calibData.projMatrix.empty() || calibData.projDist.empty() ||
+        calibData.R_CamToProj.empty() || calibData.T_CamToProj.empty()) {
+        errorMessage = "投影仪标定文件缺少必要参数(camera/proj/R/T)";
+        return false;
+    }
+
+    cv::Mat camMatrix = calibData.camMatrix;
+    cv::Mat camDist = calibData.camDist;
+    cv::Mat projMatrix = calibData.projMatrix;
+    cv::Mat projDist = calibData.projDist;
+    cv::Mat R_CamToProj = calibData.R_CamToProj;
+    cv::Mat T_CamToProj = calibData.T_CamToProj;
+
+    if (camMatrix.type() != CV_64F) camMatrix.convertTo(camMatrix, CV_64F);
+    if (camDist.type() != CV_64F) camDist.convertTo(camDist, CV_64F);
+    if (projMatrix.type() != CV_64F) projMatrix.convertTo(projMatrix, CV_64F);
+    if (projDist.type() != CV_64F) projDist.convertTo(projDist, CV_64F);
+    if (R_CamToProj.type() != CV_64F) R_CamToProj.convertTo(R_CamToProj, CV_64F);
+    if (T_CamToProj.type() != CV_64F) T_CamToProj.convertTo(T_CamToProj, CV_64F);
+
+    if (camMatrix.rows != 3 || camMatrix.cols != 3 ||
+        projMatrix.rows != 3 || projMatrix.cols != 3 ||
+        R_CamToProj.rows != 3 || R_CamToProj.cols != 3) {
+        errorMessage = "投影仪标定文件中的矩阵维度无效";
+        return false;
+    }
+
+    if (T_CamToProj.rows == 1 && T_CamToProj.cols == 3) {
+        T_CamToProj = T_CamToProj.t();
+    } else if (!(T_CamToProj.rows == 3 && T_CamToProj.cols == 1)) {
+        cv::Mat flat = T_CamToProj.reshape(1, 1);
+        if (flat.cols < 3) {
+            errorMessage = "投影仪标定文件中的平移向量维度无效";
+            return false;
+        }
+        T_CamToProj = cv::Mat(flat.colRange(0, 3).t());
+    }
+
+    const QString calibrationPath = getCalibrationTypePath("Projector");
+    QDir dir(calibrationPath);
+    QStringList filters;
+    filters << "*.jpg" << "*.bmp" << "*.png" << "*.tiff" << "*.tif";
+    const QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+    if (fileList.isEmpty()) {
+        errorMessage = QString("在路径 %1 下未找到投影仪标定图像").arg(calibrationPath);
+        return false;
+    }
+
+    std::vector<std::string> allImagePaths;
+    allImagePaths.reserve(static_cast<size_t>(fileList.size()));
+    for (const QFileInfo& fileInfo : fileList) {
+        allImagePaths.push_back(fileInfo.absoluteFilePath().toStdString());
+    }
+
+    const std::vector<std::vector<std::string>> poseGroups = m_calibrator->groupCalibrationImages(allImagePaths);
+    totalPoses = static_cast<int>(poseGroups.size());
+    if (totalPoses == 0) {
+        errorMessage = "未识别到有效Pose分组，请检查投影仪图像命名";
+        return false;
+    }
+
+    const cv::Size boardSize(m_patternCols, m_patternRows);
+    if (boardSize.width <= 0 || boardSize.height <= 0 || m_squareSizeParam <= 0.0f) {
+        errorMessage = "棋盘格参数无效，无法执行QA计算";
+        return false;
+    }
+
+    const cv::Size projSizeForQa =
+        (calibData.projRes.width > 0 && calibData.projRes.height > 0) ? calibData.projRes : m_projSize;
+    const int projFreqForQa = (calibData.projFrequency > 0) ? calibData.projFrequency : m_projFreq;
+
+    double sumSquaredError = 0.0;
+
+    for (const auto& poseGroup : poseGroups) {
+        std::vector<cv::Point3f> worldPoints;
+        std::vector<cv::Point2f> cameraPoints;
+        std::vector<cv::Point2f> projectorPoints;
+
+        const bool poseSuccess = m_calibrator->processPoseGroup(
+            poseGroup,
+            boardSize,
+            m_squareSizeParam,
+            projSizeForQa,
+            projFreqForQa,
+            m_nGrayCode,
+            m_nPhaseShift,
+            worldPoints,
+            cameraPoints,
+            projectorPoints);
+        if (!poseSuccess) {
+            continue;
+        }
+
+        if (worldPoints.empty() || cameraPoints.empty() || projectorPoints.empty()) {
+            continue;
+        }
+        if (worldPoints.size() != cameraPoints.size() || worldPoints.size() != projectorPoints.size()) {
+            continue;
+        }
+
+        cv::Mat rvec_BoardToCam;
+        cv::Mat tvec_BoardToCam;
+        const bool pnpSuccess = cv::solvePnP(worldPoints, cameraPoints, camMatrix, camDist, rvec_BoardToCam, tvec_BoardToCam);
+        if (!pnpSuccess) {
+            continue;
+        }
+        if (tvec_BoardToCam.type() != CV_64F) {
+            tvec_BoardToCam.convertTo(tvec_BoardToCam, CV_64F);
+        }
+
+        cv::Mat R_BoardToCam;
+        cv::Rodrigues(rvec_BoardToCam, R_BoardToCam);
+        if (R_BoardToCam.type() != CV_64F) {
+            R_BoardToCam.convertTo(R_BoardToCam, CV_64F);
+        }
+
+        // X_proj = R_CamToProj * (R_BoardToCam * X_board + T_BoardToCam) + T_CamToProj
+        const cv::Mat R_BoardToProj = R_CamToProj * R_BoardToCam;
+        const cv::Mat T_BoardToProj = R_CamToProj * tvec_BoardToCam + T_CamToProj;
+
+        cv::Mat rvec_BoardToProj;
+        cv::Rodrigues(R_BoardToProj, rvec_BoardToProj);
+
+        std::vector<cv::Point2f> reprojectedProjectorPoints;
+        cv::projectPoints(worldPoints, rvec_BoardToProj, T_BoardToProj, projMatrix, projDist, reprojectedProjectorPoints);
+        if (reprojectedProjectorPoints.size() != projectorPoints.size()) {
+            continue;
+        }
+
+        validPoses++;
+        for (size_t i = 0; i < projectorPoints.size(); ++i) {
+            const double dx = static_cast<double>(projectorPoints[i].x) - static_cast<double>(reprojectedProjectorPoints[i].x);
+            const double dy = static_cast<double>(projectorPoints[i].y) - static_cast<double>(reprojectedProjectorPoints[i].y);
+            sumSquaredError += dx * dx + dy * dy;
+            validPoints++;
+        }
+    }
+
+    if (validPoints == 0) {
+        errorMessage = "未在任何Pose中获得可用于QA计算的有效角点";
+        return false;
+    }
+
+    rms = std::sqrt(sumSquaredError / static_cast<double>(validPoints));
+    if (!std::isfinite(rms)) {
+        errorMessage = "RMS计算结果无效";
+        return false;
+    }
 
     return true;
 }
@@ -1458,6 +1907,8 @@ void SingleCalibrationWidget::onCalibrationFinished(bool success)
     } else {
         showErrorMessage(QString("%1 投影仪标定失败，请检查图像质量和参数设置"));
     }
+
+    refreshQaButtonStates();
 }
 
 void SingleCalibrationWidget::updateCameraSNDisplay()

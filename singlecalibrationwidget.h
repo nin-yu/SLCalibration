@@ -90,6 +90,8 @@ private:
     // 初始化函数
     void initializeUIElements();
     void setupControllers();
+    void setupQaButtons();
+    void refreshQaButtonStates();
     
     // 标定图像采集相关
     bool captureSingleImageWithSoftwareTrigger();
@@ -127,6 +129,22 @@ private:
                                     const std::vector<cv::Point2f>& corners,
                                     bool detectionSuccess,
                                     const QString& calibrationPath);
+
+    // QA函数
+    void onCameraQaRmsClicked();
+    void onProjectorQaRmsClicked();
+    bool computeCameraQaRms(double& rms,
+                            int& totalImages,
+                            int& validImages,
+                            int& validPoints,
+                            QString& errorMessage);
+    bool computeProjectorQaRms(double& rms,
+                               int& totalPoses,
+                               int& validPoses,
+                               int& validPoints,
+                               QString& errorMessage);
+    QString getCameraParamsFilePath() const;
+    QString getProjectorParamsFilePath() const;
     
     // 控制器指针
     ProjectorController* m_projectorController;
@@ -179,6 +197,8 @@ private:
     QLabel* m_label_CameraInfo;
     QLabel* m_label_Status;
     QTextEdit* m_textEdit_Log;
+    QPushButton* m_buttonQACameraRms;
+    QPushButton* m_buttonQAProjectorRms;
 
 
     
