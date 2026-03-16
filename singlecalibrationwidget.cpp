@@ -484,7 +484,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
         return;
     }
     // 设置下降沿触发
-    m_cameraController->SetTriggerActivation(m_cameraHandle, 0);  // 1 = 下降沿
+    m_cameraController->SetTriggerActivation(m_cameraHandle, 1);  // 1 = 下降沿
 
     // 启动相机 (在硬件触发模式下 "待命")
     if (!m_cameraController->StartImageCapture(m_cameraHandle)) {

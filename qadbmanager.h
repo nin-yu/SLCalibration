@@ -15,35 +15,30 @@ public:
     bool initialize(const QString& dbPath);
     bool isInitialized() const { return m_initialized; }
 
-    // QA报告操作
-    bool insertQAReport(const QDate& reportDate,
-                        const QString& deviceSide,
-                        const QString& reportType,
-                        const QString& cameraSN,
-                        const QString& projectorTag,
-                        const QString& resultStatus,
-                        double rmsError = 0.0,
-                        const QString& details = QString());
-
-    // 标定记录操作
-    bool insertCalibrationRecord(const QDate& calibDate,
-                                 const QString& deviceSide,
-                                 const QString& cameraSN,
-                                 const QString& projectorTag,
-                                 const QString& calibFilePath,
-                                 double rmsProj,
-                                 double rmsStereo,
-                                 double epiMeanPx,
-                                 double epiMedianPx,
-                                 const QString& details = QString());
+    // 每日QA报告操作（双误差模型）
+    bool insertDailyQAReport(const QDate& reportDate,
+                             const QString& deviceSide,
+                             const QString& reportType,
+                             const QString& cameraSN,
+                             const QString& projectorTag,
+                             const QString& resultStatus,
+                             const QString& poseNumber,
+                             int pointCount,
+                             double cameraMeanPx,
+                             double cameraRmsPx,
+                             double cameraP95Px,
+                             double cameraMaxPx,
+                             double projectorMeanPx,
+                             double projectorRmsPx,
+                             double projectorP95Px,
+                             double projectorMaxPx,
+                             const QString& details = QString());
 
     // 查询
     QSqlQueryModel* createReportModel(const QDate& fromDate,
                                       const QDate& toDate,
                                       const QString& deviceSide = QString(),
                                       const QString& reportType = QString());
-
-    int getReportCount() const;
 
 private:
     QADbManager();

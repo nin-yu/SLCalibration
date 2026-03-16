@@ -45,6 +45,19 @@ private:
         QString projectorTag;
     };
 
+    struct SideComputeData {
+        QString poseNumber;
+        double cameraMeanPx = -1.0;
+        double cameraRmsPx = -1.0;
+        double cameraP95Px = -1.0;
+        double cameraMaxPx = -1.0;
+        double projectorMeanPx = -1.0;
+        double projectorRmsPx = -1.0;
+        double projectorP95Px = -1.0;
+        double projectorMaxPx = -1.0;
+        int pointCount = 0;
+    };
+
     void updateDeviceInfo();
     void logMessage(const QString& message);
     QString getQABasePath() const;
@@ -76,7 +89,9 @@ private:
                                  QStringList& orderedPoseFiles,
                                  QString& reason) const;
     QString getQACalibFilePath(const SideConfig& side) const;
-    SideComputeResult computeSideProjectionError(const SideConfig& side, QString& summaryMessage);
+    SideComputeResult computeSideProjectionError(const SideConfig& side,
+                                                 QString& summaryMessage,
+                                                 SideComputeData& computeData);
 
     Ui::DailyQAWindow *ui;
     DeviceConfig m_deviceConfig;
