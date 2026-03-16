@@ -93,3 +93,5 @@ nul
 SLCalibration.qtvscr
 SLCalibration.pro
 SLCalibration.code-workspace
+*.md
+/config.ini

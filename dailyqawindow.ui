@@ -54,35 +54,22 @@
       <item>
        <layout class="QHBoxLayout" name="horizontalLayout_qaControls">
         <item>
-         <widget class="QLabel" name="label_Standard">
+         <widget class="QPushButton" name="pushButton_StartQA">
           <property name="text">
-           <string>检测标准:</string>
+           <string>开始检测</string>
+          </property>
+          <property name="minimumSize">
+           <size>
+            <width>120</width>
+            <height>30</height>
+           </size>
           </property>
          </widget>
         </item>
         <item>
-         <widget class="QComboBox" name="comboBox_Standard">
-          <item>
-           <property name="text">
-            <string>标准件精度验证</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>图像质量检查</string>
-           </property>
-          </item>
-          <item>
-           <property name="text">
-            <string>设备连接检查</string>
-           </property>
-          </item>
-         </widget>
-        </item>
-        <item>
-         <widget class="QPushButton" name="pushButton_StartQA">
+         <widget class="QPushButton" name="pushButton_StartCompute">
           <property name="text">
-           <string>开始检测</string>
+           <string>开始计算</string>
           </property>
           <property name="minimumSize">
            <size>
