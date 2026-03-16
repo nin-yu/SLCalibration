@@ -13,6 +13,9 @@ namespace Ui {
 class DailyQAWindow;
 }
 
+class CalibrationWindow;
+class QPushButton;
+
 class DailyQAWindow : public QDialog
 {
     Q_OBJECT

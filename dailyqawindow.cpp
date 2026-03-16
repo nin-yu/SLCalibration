@@ -221,6 +221,7 @@ DailyQAWindow::DailyQAWindow(const DeviceConfig& config, QWidget *parent)
     , m_isRunning(false)
 {
     ui->setupUi(this);
+    setWindowTitle("QA检测");
 
     connect(ui->pushButton_StartQA, &QPushButton::clicked,
             this, &DailyQAWindow::onStartQAClicked);

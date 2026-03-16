@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <QTextStream>
 #include <QRegularExpression>
+#include "qadbmanager.h"
 
 SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorCtrl,
                                                CCameraController* cameraCtrl,
@@ -1502,6 +1503,36 @@ void SingleCalibrationWidget::onCalibrationFinished(bool success)
                                   .arg(epiSummary)
                                   .arg(epiWarning));
             logMessage(QString("标定结果已保存到: %1").arg(resultPath));
+
+            QString deviceSide = m_isLeftDevice ? "left" : "right";
+            QString calibDetails = QString("epi_p95_px=%1;epi_max_px=%2;epi_valid_count=%3;pattern_rows=%4;pattern_cols=%5;square_size_mm=%6")
+                                       .arg(m_calibData.epiP95Px, 0, 'f', 6)
+                                       .arg(m_calibData.epiMaxPx, 0, 'f', 6)
+                                       .arg(m_calibData.epiValidCount)
+                                       .arg(m_patternRows)
+                                       .arg(m_patternCols)
+                                       .arg(m_squareSizeParam, 0, 'f', 3);
+
+            bool recordOk = QADbManager::instance().insertCalibrationRecord(
+                QDate::currentDate(),
+                deviceSide,
+                m_cameraSerialNumber,
+                m_deviceTag,
+                resultPath,
+                m_calibData.rmsProj,
+                m_calibData.rmsStereo,
+                m_calibData.epiMeanPx,
+                m_calibData.epiMedianPx,
+                calibDetails
+            );
+            if (recordOk) {
+                logMessage(QString("标定记录已写入数据库: side=%1, rmsProj=%2, rmsStereo=%3")
+                               .arg(deviceSide)
+                               .arg(m_calibData.rmsProj, 0, 'f', 6)
+                               .arg(m_calibData.rmsStereo, 0, 'f', 6));
+            } else {
+                logMessage("警告: 标定记录写入数据库失败");
+            }
         } else {
             showErrorMessage("标定完成但保存结果失败");
             logMessage("警告: 标定结果保存失败");
