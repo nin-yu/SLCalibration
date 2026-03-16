@@ -964,7 +964,6 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         };
 
         const QString cameraWhiteImagePath = findPoseWhiteImage(cameraPath, poseNumber);
-        const QString projectorWhiteImagePath = findPoseWhiteImage(projectorPath, poseNumber);
 
         const QString cameraResultDirPath = cameraPath + "/result";
         const QString projectorResultDirPath = projectorPath + "/result";
@@ -991,21 +990,16 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
             }
         }
 
-        const QString projectorWhitePoseId = extractPoseIdFromImagePath(projectorWhiteImagePath);
-        cv::Mat projectorWhiteImage = cv::imread(projectorWhiteImagePath.toStdString(), cv::IMREAD_GRAYSCALE);
-        if (projectorWhitePoseId != poseNumber) {
-            logMessage(QString("%1: 警告 - 投影仪结果图Pose不一致(计算Pose_%2, 底图=%3)，跳过投影仪2D对比图输出")
+        if (projSize.width <= 0 || projSize.height <= 0) {
+            logMessage(QString("%1: 警告 - 投影仪分辨率无效(%2x%3)，跳过投影仪2D对比图输出")
                            .arg(side.displayName)
-                           .arg(poseNumber)
-                           .arg(QFileInfo(projectorWhiteImagePath).fileName()));
-        } else if (projectorWhiteImage.empty()) {
-            logMessage(QString("%1: 警告 - 无法读取投影仪 _White 图(Pose_%2/Img_01)，跳过投影仪2D对比图输出")
-                           .arg(side.displayName)
-                           .arg(poseNumber));
+                           .arg(projSize.width)
+                           .arg(projSize.height));
         } else {
+            cv::Mat projectorBlackImage(projSize.height, projSize.width, CV_8UC1, cv::Scalar(0));
             const QString projectorResultPath = QString("%1/Pose_%2_Projector2DCompare.png").arg(projectorResultDirPath, poseNumber);
-            if (save2DCompareImage(projectorWhiteImage, projectorPoints, projectorProjected, "projector 2D compare", projectorResultPath)) {
-                logMessage(QString("%1: 投影仪2D对比图已保存: %2").arg(side.displayName, projectorResultPath));
+            if (save2DCompareImage(projectorBlackImage, projectorPoints, projectorProjected, "projector 2D compare", projectorResultPath)) {
+                logMessage(QString("%1: 投影仪2D对比图已保存(黑底): %2").arg(side.displayName, projectorResultPath));
             } else {
                 logMessage(QString("%1: 警告 - 投影仪2D对比图保存失败: %2").arg(side.displayName, projectorResultPath));
             }

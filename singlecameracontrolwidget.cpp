@@ -815,7 +815,7 @@ void SingleCameraControlWidget::saveCapturedImage(const cv::Mat& image)
     // 生成文件名
     QString fileName = QString("software_trigger_image_%1.jpg")
                       .arg(QDateTime::currentDateTime().toString("yyyyMMdd_hhmmsszzz"));
-    QString fullPath = QDir::currentPath() + "/" + fileName;
+    QString fullPath = QCoreApplication::applicationDirPath() + "/" + fileName;
     
     // 保存图像
     std::vector<int> compression_params;
