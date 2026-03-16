@@ -4,9 +4,11 @@
 #include "CameraController.h"
 #include "calibrationutils.h"
 #include "gcpscalib.h"
+#include "qadbmanager.h"
 
 #include <QMessageBox>
 #include <QDateTime>
+#include <QDate>
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
@@ -28,6 +30,10 @@ constexpr float kQACameraGain = 0.0f;
 constexpr int kQAProjectorExposureUs = 500000;
 constexpr int kQAProjectorPattern = 6;
 constexpr int kQAProjectorTrigger = 0;  // 0 = 内触发
+constexpr int kQACameraTriggerMode = 1;  // 1 = 外触发
+constexpr const char* kQACameraTriggerSource = "Line0";
+constexpr unsigned int kQACameraTriggerActivation = 1;  // 1 = 下降沿
+constexpr const char* kQACameraTriggerSourceReadback = "0";  // Line0 enum value
 constexpr int kImageTimeoutMs = 3000;
 constexpr unsigned int kImageBufferSize = 5 * 1024 * 1024;
 constexpr int kExpectedPoseImageCount = 20;
@@ -39,13 +45,34 @@ constexpr int kBoardRows = 20;
 constexpr float kBoardSquareSizeMm = 10.0f;
 constexpr int kGrayCodeCount = 5;
 constexpr int kPhaseShiftCount = 4;
+constexpr int kMinValidPointCount = 320;
+constexpr const char* kFixedPoseTransformName = "center+inv";
 
 struct ErrorStats {
     double mean = -1.0;
     double rms = -1.0;
+    double p95 = -1.0;
     double max = -1.0;
     int count = 0;
 };
+
+double calculatePercentile(std::vector<double> values, double percentile)
+{
+    if (values.empty()) {
+        return -1.0;
+    }
+
+    std::sort(values.begin(), values.end());
+    const double position = percentile * static_cast<double>(values.size() - 1);
+    const size_t lowIndex = static_cast<size_t>(std::floor(position));
+    const size_t highIndex = static_cast<size_t>(std::ceil(position));
+    if (lowIndex == highIndex) {
+        return values[lowIndex];
+    }
+
+    const double ratio = position - static_cast<double>(lowIndex);
+    return values[lowIndex] * (1.0 - ratio) + values[highIndex] * ratio;
+}
 
 ErrorStats calculateErrorStats(const std::vector<cv::Point2f>& measured,
                                const std::vector<cv::Point2f>& projected)
@@ -59,8 +86,11 @@ ErrorStats calculateErrorStats(const std::vector<cv::Point2f>& measured,
     double sum = 0.0;
     double sumSquare = 0.0;
     double maxValue = 0.0;
+    std::vector<double> errors;
+    errors.reserve(pointCount);
     for (size_t i = 0; i < pointCount; ++i) {
         const double err = cv::norm(measured[i] - projected[i]);
+        errors.push_back(err);
         sum += err;
         sumSquare += err * err;
         maxValue = std::max(maxValue, err);
@@ -69,8 +99,26 @@ ErrorStats calculateErrorStats(const std::vector<cv::Point2f>& measured,
     stats.count = static_cast<int>(pointCount);
     stats.mean = sum / static_cast<double>(pointCount);
     stats.rms = std::sqrt(sumSquare / static_cast<double>(pointCount));
+    stats.p95 = calculatePercentile(errors, 0.95);
     stats.max = maxValue;
     return stats;
+}
+
+void centerBoardPointsInPlace(std::vector<cv::Point3f>& boardPoints,
+                              int boardCols,
+                              int boardRows,
+                              float squareSizeMm)
+{
+    if (boardPoints.empty()) {
+        return;
+    }
+
+    const float offsetX = (static_cast<float>(boardCols) - 1.0f) * squareSizeMm * 0.5f;
+    const float offsetY = (static_cast<float>(boardRows) - 1.0f) * squareSizeMm * 0.5f;
+    for (cv::Point3f& point : boardPoints) {
+        point.x -= offsetX;
+        point.y -= offsetY;
+    }
 }
 
 bool toRotation3x3(const cv::Mat& input, cv::Mat& output)
@@ -103,147 +151,47 @@ bool toVector3x1(const cv::Mat& input, cv::Mat& output)
     return true;
 }
 
-std::vector<cv::Point3f> buildBoardPoints(const cv::Size& boardSize, float squareSizeMm)
+QString findPoseWhiteImage(const QString& imageDirPath,
+                           const QString& poseNumber)
 {
-    std::vector<cv::Point3f> objectPoints;
-    objectPoints.reserve(static_cast<size_t>(boardSize.width * boardSize.height));
-    for (int row = 0; row < boardSize.height; ++row) {
-        for (int col = 0; col < boardSize.width; ++col) {
-            objectPoints.emplace_back(col * squareSizeMm, row * squareSizeMm, 0.0f);
+    QDir imageDir(imageDirPath);
+    if (!imageDir.exists()) {
+        return QString();
+    }
+
+    const QStringList filters{
+        QString("Pose_%1_Img_01_*.bmp").arg(poseNumber),
+        QString("Pose_%1_Img_01_*.png").arg(poseNumber),
+        QString("Pose_%1_Img_01_*.jpg").arg(poseNumber),
+        QString("Pose_%1_Img_01_*.jpeg").arg(poseNumber),
+        QString("Pose_%1_Img_01_*.tif").arg(poseNumber),
+        QString("Pose_%1_Img_01_*.tiff").arg(poseNumber)
+    };
+    const QFileInfoList files = imageDir.entryInfoList(filters, QDir::Files, QDir::Name);
+    if (files.isEmpty()) {
+        return QString();
+    }
+
+    const QRegularExpression whiteRegex("_white", QRegularExpression::CaseInsensitiveOption);
+    for (const QFileInfo& fileInfo : files) {
+        if (whiteRegex.match(fileInfo.fileName()).hasMatch()) {
+            return fileInfo.absoluteFilePath();
         }
     }
-    return objectPoints;
+    return files.first().absoluteFilePath();
 }
 
-bool solveBoardPoseFromWhiteImage(const QString& whiteImagePath,
-                                  const cv::Mat& camMatrixInput,
-                                  const cv::Mat& camDistInput,
-                                  const cv::Size& boardSize,
-                                  float squareSizeMm,
-                                  cv::Mat& R_boardToCam,
-                                  cv::Mat& T_boardToCam,
-                                  QString& reason)
+QString extractPoseIdFromImagePath(const QString& imagePath)
 {
-    reason.clear();
-
-    cv::Mat whiteImage = cv::imread(whiteImagePath.toStdString(), cv::IMREAD_GRAYSCALE);
-    if (whiteImage.empty()) {
-        reason = QString("无法读取相机White图: %1").arg(whiteImagePath);
-        return false;
+    const QString fileName = QFileInfo(imagePath).fileName();
+    const QRegularExpression fileRegex(
+        "^Pose_(\\d+)_Img_\\d{2}_.*\\.(bmp|png|jpg|jpeg|tif|tiff)$",
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = fileRegex.match(fileName);
+    if (!match.hasMatch()) {
+        return QString();
     }
-
-    std::vector<cv::Point2f> corners;
-    const bool found = cv::findChessboardCorners(
-        whiteImage,
-        boardSize,
-        corners,
-        cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
-    if (!found) {
-        reason = QString("White图未检测到 %1x%2 棋盘角点")
-                     .arg(boardSize.width)
-                     .arg(boardSize.height);
-        return false;
-    }
-
-    cv::cornerSubPix(whiteImage,
-                     corners,
-                     cv::Size(11, 11),
-                     cv::Size(-1, -1),
-                     cv::TermCriteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.001));
-
-    const std::vector<cv::Point3f> objectPoints = buildBoardPoints(boardSize, squareSizeMm);
-    cv::Mat camMatrix;
-    cv::Mat camDist;
-    camMatrixInput.convertTo(camMatrix, CV_64F);
-    camDistInput.convertTo(camDist, CV_64F);
-
-    cv::Mat rvec;
-    cv::Mat tvec;
-    if (!cv::solvePnP(objectPoints, corners, camMatrix, camDist, rvec, tvec)) {
-        reason = "坐标系标定失败: solvePnP 未收敛";
-        return false;
-    }
-
-    cv::Rodrigues(rvec, R_boardToCam);
-    if (!toVector3x1(tvec, T_boardToCam)) {
-        reason = "坐标系标定失败: 平移向量格式无效";
-        return false;
-    }
-
-    return true;
-}
-
-bool upsertBoardPoseToCalibrationFile(const QString& calibFilePath,
-                                      const cv::Mat& R_boardToCam,
-                                      const cv::Mat& T_boardToCam,
-                                      QString& reason)
-{
-    reason.clear();
-
-    cv::Mat R;
-    cv::Mat T;
-    if (!toRotation3x3(R_boardToCam, R) || !toVector3x1(T_boardToCam, T)) {
-        reason = "写入失败: 位姿矩阵维度无效";
-        return false;
-    }
-
-    cv::FileStorage fsTmp(".tmp_calib.xml", cv::FileStorage::WRITE | cv::FileStorage::MEMORY);
-    fsTmp << "R_BoardToCam" << R;
-    fsTmp << "T_BoardToCam" << T;
-    const QString xmlContent = QString::fromStdString(fsTmp.releaseAndGetString());
-
-    const QRegularExpression rRegex("<R_BoardToCam[\\s\\S]*?</R_BoardToCam>");
-    const QRegularExpression tRegex("<T_BoardToCam[\\s\\S]*?</T_BoardToCam>");
-    const QRegularExpressionMatch rMatch = rRegex.match(xmlContent);
-    const QRegularExpressionMatch tMatch = tRegex.match(xmlContent);
-    if (!rMatch.hasMatch() || !tMatch.hasMatch()) {
-        reason = "写入失败: 无法生成位姿XML片段";
-        return false;
-    }
-
-    QFile inputFile(calibFilePath);
-    if (!inputFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        reason = QString("写入失败: 无法读取标定文件 %1").arg(calibFilePath);
-        return false;
-    }
-    QString fileContent = QString::fromUtf8(inputFile.readAll());
-    inputFile.close();
-
-    const QString rNode = rMatch.captured(0);
-    const QString tNode = tMatch.captured(0);
-
-    const bool hasR = rRegex.match(fileContent).hasMatch();
-    const bool hasT = tRegex.match(fileContent).hasMatch();
-
-    if (hasR) {
-        fileContent.replace(rRegex, rNode);
-    } else {
-        fileContent.replace("</opencv_storage>", rNode + "\n</opencv_storage>");
-    }
-
-    if (hasT) {
-        fileContent.replace(tRegex, tNode);
-    } else {
-        fileContent.replace("</opencv_storage>", tNode + "\n</opencv_storage>");
-    }
-
-    QFile outputFile(calibFilePath);
-    if (!outputFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        reason = QString("写入失败: 无法写入标定文件 %1").arg(calibFilePath);
-        return false;
-    }
-    outputFile.write(fileContent.toUtf8());
-    outputFile.close();
-    return true;
-}
-
-QString getCameraWhiteImagePath(const QString& cameraPath, const QString& projectorWhiteImagePath)
-{
-    const QString cameraWhitePath = cameraPath + "/" + QFileInfo(projectorWhiteImagePath).fileName();
-    if (QFileInfo::exists(cameraWhitePath)) {
-        return cameraWhitePath;
-    }
-    return projectorWhiteImagePath;
+    return match.captured(1);
 }
 
 QString patternNameForIndex(int index)
@@ -287,7 +235,7 @@ DailyQAWindow::DailyQAWindow(const DeviceConfig& config, QWidget *parent)
     updateDeviceInfo();
 
     logMessage("每日 QA 检测窗口已启动");
-    logMessage(QString("日检固定参数: 相机曝光=%1us, 相机增益=%2, 投影曝光=%3us, 图案=%4, 触发模式=内触发")
+    logMessage(QString("日检固定参数: 相机曝光=%1us, 相机增益=%2, 投影曝光=%3us, 图案=%4, 投影触发=内触发, 相机触发=外触发(Line0,下降沿)")
                .arg(kQACameraExposureUs, 0, 'f', 0)
                .arg(kQACameraGain, 0, 'f', 0)
                .arg(kQAProjectorExposureUs)
@@ -448,12 +396,45 @@ bool DailyQAWindow::capturePatternSequence(const QString& projectorTag,
                                            const QString& cameraPath,
                                            int poseNumber)
 {
-    if (!m_cameraController->SetTriggerMode(cameraHandle, 1) ||
-        !m_cameraController->SetTriggerSource(cameraHandle, "Line0")) {
-        logMessage("设置硬触发失败");
+    if (!m_cameraController->SetTriggerMode(cameraHandle, kQACameraTriggerMode)) {
+        logMessage("设置相机外触发模式失败");
         return false;
     }
-    m_cameraController->SetTriggerActivation(cameraHandle, 0);
+    if (!m_cameraController->SetTriggerSource(cameraHandle, kQACameraTriggerSource)) {
+        logMessage("设置相机触发源Line0失败");
+        return false;
+    }
+    if (!m_cameraController->SetTriggerActivation(cameraHandle, kQACameraTriggerActivation)) {
+        logMessage("设置相机触发边沿为下降沿失败");
+        return false;
+    }
+
+    int triggerMode = -1;
+    unsigned int triggerActivation = 999;
+    char triggerSource[64] = {0};
+    if (!m_cameraController->GetTriggerMode(cameraHandle, triggerMode) ||
+        triggerMode != kQACameraTriggerMode) {
+        logMessage(QString("相机触发模式校验失败: current=%1, expected=%2")
+                       .arg(triggerMode)
+                       .arg(kQACameraTriggerMode));
+        return false;
+    }
+    if (!m_cameraController->GetTriggerSource(cameraHandle, triggerSource, sizeof(triggerSource)) ||
+        QString::fromLatin1(triggerSource) != QString::fromLatin1(kQACameraTriggerSourceReadback)) {
+        logMessage(QString("相机触发源校验失败: current=%1, expected=%2(Line0)")
+                       .arg(QString::fromLatin1(triggerSource))
+                       .arg(kQACameraTriggerSourceReadback));
+        return false;
+    }
+    if (!m_cameraController->GetTriggerActivation(cameraHandle, triggerActivation) ||
+        triggerActivation != kQACameraTriggerActivation) {
+        logMessage(QString("相机触发边沿校验失败: current=%1, expected=%2(下降沿)")
+                       .arg(triggerActivation)
+                       .arg(kQACameraTriggerActivation));
+        return false;
+    }
+
+    logMessage("相机触发参数已确认: 外触发 + Line0 + 下降沿");
 
     if (!m_cameraController->StartImageCapture(cameraHandle)) {
         logMessage("启动相机失败(硬触发)");
@@ -544,7 +525,7 @@ DailyQAWindow::SideRunResult DailyQAWindow::runSideDailyQA(const SideConfig& sid
     const int poseNumber = getNextPoseNumber(projectorPath);
     std::vector<unsigned char> imageBuffer(kImageBufferSize);
 
-    logMessage(QString("%1 参数已固定: CamExp=%2us CamGain=%3 ProjExp=%4us Pattern=%5 Trigger=内触发")
+    logMessage(QString("%1 参数已固定: CamExp=%2us CamGain=%3 ProjExp=%4us Pattern=%5 ProjTrigger=内触发 CamTrigger=外触发(Line0,下降沿)")
                    .arg(side.displayName)
                    .arg(kQACameraExposureUs, 0, 'f', 0)
                    .arg(kQACameraGain, 0, 'f', 0)
@@ -643,14 +624,26 @@ bool DailyQAWindow::collectSinglePoseImages(const QString& projectorPath,
         return false;
     }
 
-    if (poseImageMap.size() != 1) {
-        reason = QString("检测到 %1 个 Pose，要求目录中恰好 1 个 Pose").arg(poseImageMap.size());
+    QString latestPoseId;
+    int latestPoseNumber = -1;
+    for (auto it = poseImageMap.constBegin(); it != poseImageMap.constEnd(); ++it) {
+        bool ok = false;
+        const int currentPoseNumber = it.key().toInt(&ok);
+        if (!ok) {
+            continue;
+        }
+        if (currentPoseNumber > latestPoseNumber) {
+            latestPoseNumber = currentPoseNumber;
+            latestPoseId = it.key();
+        }
+    }
+    if (latestPoseNumber < 0 || latestPoseId.isEmpty()) {
+        reason = "未找到可解析的 Pose 编号";
         return false;
     }
 
-    const auto poseIt = poseImageMap.constBegin();
-    poseNumber = poseIt.key();
-    const QMap<int, QString> imageMap = poseIt.value();
+    poseNumber = latestPoseId;
+    const QMap<int, QString> imageMap = poseImageMap.value(latestPoseId);
 
     QStringList missingIndices;
     for (int i = 0; i < kExpectedPoseImageCount; ++i) {
@@ -681,9 +674,11 @@ QString DailyQAWindow::getQACalibFilePath(const SideConfig& side) const
 }
 
 DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const SideConfig& side,
-                                                                            QString& summaryMessage)
+                                                                            QString& summaryMessage,
+                                                                            SideComputeData& computeData)
 {
     summaryMessage.clear();
+    computeData = SideComputeData{};
 
     const QString projectorPath = getQATypedPath(side.folderName, "Projector");
     const QString cameraPath = getQATypedPath(side.folderName, "Camera");
@@ -696,6 +691,19 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         logMessage(summaryMessage);
         return SideComputeResult::Skipped;
     }
+    for (const QString& imagePath : orderedPoseFiles) {
+        const QString imagePoseId = extractPoseIdFromImagePath(imagePath);
+        if (imagePoseId != poseNumber) {
+            summaryMessage = QString("%1: 计算失败 - 计算图像Pose不一致(期望 Pose_%2, 实际文件 %3)")
+                                 .arg(side.displayName)
+                                 .arg(poseNumber)
+                                 .arg(QFileInfo(imagePath).fileName());
+            logMessage(summaryMessage);
+            return SideComputeResult::Failed;
+        }
+    }
+    logMessage(QString("%1: 本次计算使用 Pose_%2").arg(side.displayName, poseNumber));
+    computeData.poseNumber = poseNumber;
 
     const QString calibFilePath = getQACalibFilePath(side);
     if (!QFileInfo::exists(calibFilePath)) {
@@ -714,8 +722,9 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
 
     if (calibData.camMatrix.empty() || calibData.camDist.empty() ||
         calibData.projMatrix.empty() || calibData.projDist.empty() ||
-        calibData.R_CamToProj.empty() || calibData.T_CamToProj.empty()) {
-        summaryMessage = QString("%1: 计算失败 - 标定参数不完整").arg(side.displayName);
+        calibData.R_CamToProj.empty() || calibData.T_CamToProj.empty() ||
+        calibData.R_BoardToCam.empty() || calibData.T_BoardToCam.empty()) {
+        summaryMessage = QString("%1: 计算失败 - 标定参数不完整(缺少固定板金标准位姿或外参)").arg(side.displayName);
         logMessage(summaryMessage);
         return SideComputeResult::Failed;
     }
@@ -764,15 +773,78 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
             return SideComputeResult::Failed;
         }
 
-        const size_t matchedCount = std::min({worldPoints.size(), cameraPoints.size(), projectorPoints.size()});
-        if (matchedCount == 0) {
+        const size_t pairCount = std::min({worldPoints.size(), cameraPoints.size(), projectorPoints.size()});
+        if (pairCount == 0) {
             summaryMessage = QString("%1: 计算失败 - 有效对应点数量为 0").arg(side.displayName);
+            logMessage(summaryMessage);
+            return SideComputeResult::Failed;
+        }
+
+        std::vector<cv::Point3f> filteredWorldPoints;
+        std::vector<cv::Point2f> filteredCameraPoints;
+        std::vector<cv::Point2f> filteredProjectorPoints;
+        filteredWorldPoints.reserve(pairCount);
+        filteredCameraPoints.reserve(pairCount);
+        filteredProjectorPoints.reserve(pairCount);
+
+        int rejectedInvalidProjector = 0;
+        int rejectedInvalidNumeric = 0;
+        for (size_t i = 0; i < pairCount; ++i) {
+            const cv::Point3f& wp = worldPoints[i];
+            const cv::Point2f& cp = cameraPoints[i];
+            const cv::Point2f& pp = projectorPoints[i];
+
+            const bool finiteValues =
+                std::isfinite(wp.x) && std::isfinite(wp.y) && std::isfinite(wp.z) &&
+                std::isfinite(cp.x) && std::isfinite(cp.y) &&
+                std::isfinite(pp.x) && std::isfinite(pp.y);
+            if (!finiteValues) {
+                ++rejectedInvalidNumeric;
+                continue;
+            }
+
+            const bool projectorInRange =
+                pp.x >= 0.0f && pp.x < static_cast<float>(projSize.width) &&
+                pp.y >= 0.0f && pp.y < static_cast<float>(projSize.height);
+            const bool projectorNotZero = !(std::abs(pp.x) < 1e-3f && std::abs(pp.y) < 1e-3f);
+            if (!projectorInRange || !projectorNotZero) {
+                ++rejectedInvalidProjector;
+                continue;
+            }
+
+            filteredWorldPoints.push_back(wp);
+            filteredCameraPoints.push_back(cp);
+            filteredProjectorPoints.push_back(pp);
+        }
+
+        worldPoints.swap(filteredWorldPoints);
+        cameraPoints.swap(filteredCameraPoints);
+        projectorPoints.swap(filteredProjectorPoints);
+
+        if (rejectedInvalidProjector > 0 || rejectedInvalidNumeric > 0) {
+            logMessage(QString("%1: 点过滤完成，保留%2/%3，剔除无效投影点=%4，剔除非法数值点=%5")
+                           .arg(side.displayName)
+                           .arg(worldPoints.size())
+                           .arg(pairCount)
+                           .arg(rejectedInvalidProjector)
+                           .arg(rejectedInvalidNumeric));
+        }
+
+        const size_t matchedCount = std::min({worldPoints.size(), cameraPoints.size(), projectorPoints.size()});
+        if (matchedCount < static_cast<size_t>(kMinValidPointCount)) {
+            summaryMessage = QString("%1: 计算失败 - 有效对应点数量不足(%2 < %3)")
+                                 .arg(side.displayName)
+                                 .arg(static_cast<int>(matchedCount))
+                                 .arg(kMinValidPointCount);
             logMessage(summaryMessage);
             return SideComputeResult::Failed;
         }
         worldPoints.resize(matchedCount);
         cameraPoints.resize(matchedCount);
         projectorPoints.resize(matchedCount);
+
+        std::vector<cv::Point3f> worldPointsCentered = worldPoints;
+        centerBoardPointsInPlace(worldPointsCentered, kBoardCols, kBoardRows, kBoardSquareSizeMm);
 
         cv::Mat camMatrix;
         cv::Mat camDist;
@@ -782,54 +854,6 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         calibData.camDist.convertTo(camDist, CV_64F);
         calibData.projMatrix.convertTo(projMatrix, CV_64F);
         calibData.projDist.convertTo(projDist, CV_64F);
-
-        bool autoCoordinateCalibrated = false;
-        if (calibData.R_BoardToCam.empty() || calibData.T_BoardToCam.empty()) {
-            const QString projectorWhiteImagePath = orderedPoseFiles.value(1);
-            const QString cameraWhiteImagePath = getCameraWhiteImagePath(cameraPath, projectorWhiteImagePath);
-
-            logMessage(QString("%1: 标定文件缺少 R_BoardToCam/T_BoardToCam，开始使用当前相机White图自动执行坐标系标定")
-                           .arg(side.displayName));
-            logMessage(QString("%1: 坐标系标定输入图像: %2").arg(side.displayName, cameraWhiteImagePath));
-
-            cv::Mat R_boardToCam;
-            cv::Mat T_boardToCam;
-            QString coordinateReason;
-            if (!solveBoardPoseFromWhiteImage(cameraWhiteImagePath,
-                                              camMatrix,
-                                              camDist,
-                                              cv::Size(kBoardCols, kBoardRows),
-                                              kBoardSquareSizeMm,
-                                              R_boardToCam,
-                                              T_boardToCam,
-                                              coordinateReason)) {
-                summaryMessage = QString("%1: 计算失败 - 缺少固定板位姿且自动坐标系标定失败: %2。请确认White图中棋盘完整清晰后重试。")
-                                     .arg(side.displayName, coordinateReason);
-                logMessage(summaryMessage);
-                return SideComputeResult::Failed;
-            }
-
-            QString writeReason;
-            if (!upsertBoardPoseToCalibrationFile(calibFilePath, R_boardToCam, T_boardToCam, writeReason)) {
-                summaryMessage = QString("%1: 计算失败 - 自动坐标系标定成功，但写回标定文件失败: %2")
-                                     .arg(side.displayName, writeReason);
-                logMessage(summaryMessage);
-                return SideComputeResult::Failed;
-            }
-
-            calibData.R_BoardToCam = R_boardToCam;
-            calibData.T_BoardToCam = T_boardToCam;
-            autoCoordinateCalibrated = true;
-
-            const QString autoInfo = QString("%1: 已自动补齐 R_BoardToCam/T_BoardToCam，并写回 %2")
-                                         .arg(side.displayName, calibFilePath);
-            logMessage(autoInfo);
-            QMessageBox::information(
-                this,
-                tr("每日QA计算"),
-                QString("%1\n\n缺少固定板位姿数据，已使用当前相机White图自动完成坐标系标定并继续计算。")
-                    .arg(autoInfo));
-        }
 
         cv::Mat R_boardToCam;
         cv::Mat T_boardToCam;
@@ -844,29 +868,30 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
             return SideComputeResult::Failed;
         }
 
-        cv::Mat R_boardToProj = R_camToProj * R_boardToCam;
-        cv::Mat T_boardToProj = R_camToProj * T_boardToCam + T_camToProj;
-        cv::Mat rvecBoardToProj;
-        cv::Rodrigues(R_boardToProj, rvecBoardToProj);
-
-        // 相机预测点使用完整外参链路：
-        // Board -> Projector (R_boardToProj, T_boardToProj) 再 Projector -> Camera
-        const cv::Mat R_projToCam = R_camToProj.t();
-        const cv::Mat T_projToCam = -R_projToCam * T_camToProj;
-        const cv::Mat R_boardToCamFromChain = R_projToCam * R_boardToProj;
-        const cv::Mat T_boardToCamFromChain = R_projToCam * T_boardToProj + T_projToCam;
-        cv::Mat rvecBoardToCamFromChain;
-        cv::Rodrigues(R_boardToCamFromChain, rvecBoardToCamFromChain);
+        // 固定使用 center+inv 组合（中心坐标系 + R/T 逆变换）。
+        cv::Mat R_boardToCamInverted = R_boardToCam.t();
+        cv::Mat T_boardToCamInverted = -R_boardToCamInverted * T_boardToCam;
+        cv::Mat R_boardToProj = R_camToProj * R_boardToCamInverted;
+        cv::Mat T_boardToProj = R_camToProj * T_boardToCamInverted + T_camToProj;
+        cv::Mat Rvec_boardToCam;
+        cv::Mat Rvec_boardToProj;
+        cv::Rodrigues(R_boardToCamInverted, Rvec_boardToCam);
+        cv::Rodrigues(R_boardToProj, Rvec_boardToProj);
 
         std::vector<cv::Point2f> cameraProjected;
         std::vector<cv::Point2f> projectorProjected;
-        cv::projectPoints(worldPoints,
-                          rvecBoardToCamFromChain,
-                          T_boardToCamFromChain,
+        cv::projectPoints(worldPointsCentered,
+                          Rvec_boardToCam,
+                          T_boardToCamInverted,
                           camMatrix,
                           camDist,
                           cameraProjected);
-        cv::projectPoints(worldPoints, rvecBoardToProj, T_boardToProj, projMatrix, projDist, projectorProjected);
+        cv::projectPoints(worldPointsCentered,
+                          Rvec_boardToProj,
+                          T_boardToProj,
+                          projMatrix,
+                          projDist,
+                          projectorProjected);
 
         const ErrorStats camStats = calculateErrorStats(cameraPoints, cameraProjected);
         const ErrorStats projStats = calculateErrorStats(projectorPoints, projectorProjected);
@@ -875,47 +900,130 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
             logMessage(summaryMessage);
             return SideComputeResult::Failed;
         }
+        logMessage(QString("%1: 已固定坐标转换策略=%2")
+                       .arg(side.displayName)
+                       .arg(kFixedPoseTransformName));
+        computeData.pointCount = static_cast<int>(matchedCount);
+        computeData.cameraMeanPx = camStats.mean;
+        computeData.cameraRmsPx = camStats.rms;
+        computeData.cameraP95Px = camStats.p95;
+        computeData.cameraMaxPx = camStats.max;
+        computeData.projectorMeanPx = projStats.mean;
+        computeData.projectorRmsPx = projStats.rms;
+        computeData.projectorP95Px = projStats.p95;
+        computeData.projectorMaxPx = projStats.max;
 
-        const QString whiteImagePath = getCameraWhiteImagePath(cameraPath, orderedPoseFiles.value(1));
-        cv::Mat whiteImage = cv::imread(whiteImagePath.toStdString(), cv::IMREAD_GRAYSCALE);
-        if (whiteImage.empty()) {
-            logMessage(QString("%1: 警告 - 无法读取 White 图，跳过叠加图输出").arg(side.displayName));
-        } else {
-            cv::Mat overlayImage;
-            cv::cvtColor(whiteImage, overlayImage, cv::COLOR_GRAY2BGR);
-
-            const size_t drawCount = std::min(cameraPoints.size(), cameraProjected.size());
-            for (size_t i = 0; i < drawCount; ++i) {
-                const cv::Point measuredPt(cvRound(cameraPoints[i].x), cvRound(cameraPoints[i].y));
-                const cv::Point projectedPt(cvRound(cameraProjected[i].x), cvRound(cameraProjected[i].y));
-
-                cv::circle(overlayImage, measuredPt, 2, cv::Scalar(0, 255, 0), -1);
-                cv::circle(overlayImage, projectedPt, 2, cv::Scalar(0, 0, 255), -1);
-                cv::line(overlayImage, measuredPt, projectedPt, cv::Scalar(0, 255, 255), 1);
+        auto save2DCompareImage = [&](const cv::Mat& baseGrayImage,
+                                      const std::vector<cv::Point2f>& measuredPoints,
+                                      const std::vector<cv::Point2f>& projectedPoints,
+                                      const QString& titleText,
+                                      const QString& savePath) -> bool {
+            if (baseGrayImage.empty()) {
+                return false;
             }
 
-            const QString resultDirPath = cameraPath + "/result";
-            QDir().mkpath(resultDirPath);
-            const QString resultPath = QString("%1/Pose_%2_2DCompare.png").arg(resultDirPath, poseNumber);
-            if (cv::imwrite(resultPath.toStdString(), overlayImage)) {
-                logMessage(QString("%1: 相机2D对比图已保存: %2").arg(side.displayName, resultPath));
+            cv::Mat overlayImage;
+            cv::cvtColor(baseGrayImage, overlayImage, cv::COLOR_GRAY2BGR);
+            const size_t drawCount = std::min(measuredPoints.size(), projectedPoints.size());
+            for (size_t i = 0; i < drawCount; ++i) {
+                const cv::Point2f& measured = measuredPoints[i];
+                const cv::Point2f& projected = projectedPoints[i];
+                if (!std::isfinite(measured.x) || !std::isfinite(measured.y) ||
+                    !std::isfinite(projected.x) || !std::isfinite(projected.y)) {
+                    continue;
+                }
+
+                const cv::Point measuredPt(cvRound(measured.x), cvRound(measured.y));
+                const cv::Point projectedPt(cvRound(projected.x), cvRound(projected.y));
+                const bool measuredInImage =
+                    measuredPt.x >= 0 && measuredPt.x < overlayImage.cols &&
+                    measuredPt.y >= 0 && measuredPt.y < overlayImage.rows;
+                const bool projectedInImage =
+                    projectedPt.x >= 0 && projectedPt.x < overlayImage.cols &&
+                    projectedPt.y >= 0 && projectedPt.y < overlayImage.rows;
+                if (!measuredInImage && !projectedInImage) {
+                    continue;
+                }
+
+                if (measuredInImage) {
+                    cv::circle(overlayImage, measuredPt, 2, cv::Scalar(0, 255, 0), -1);
+                }
+                if (projectedInImage) {
+                    cv::circle(overlayImage, projectedPt, 2, cv::Scalar(0, 0, 255), -1);
+                }
+                if (measuredInImage && projectedInImage) {
+                    cv::line(overlayImage, measuredPt, projectedPt, cv::Scalar(0, 255, 255), 1);
+                }
+            }
+
+            cv::putText(overlayImage, titleText.toStdString(), cv::Point(24, 40),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
+            cv::putText(overlayImage, "measured(green) projected(red)", cv::Point(24, 72),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 0), 2, cv::LINE_AA);
+            return cv::imwrite(savePath.toStdString(), overlayImage);
+        };
+
+        const QString cameraWhiteImagePath = findPoseWhiteImage(cameraPath, poseNumber);
+        const QString projectorWhiteImagePath = findPoseWhiteImage(projectorPath, poseNumber);
+
+        const QString cameraResultDirPath = cameraPath + "/result";
+        const QString projectorResultDirPath = projectorPath + "/result";
+        QDir().mkpath(cameraResultDirPath);
+        QDir().mkpath(projectorResultDirPath);
+
+        const QString cameraWhitePoseId = extractPoseIdFromImagePath(cameraWhiteImagePath);
+        cv::Mat cameraWhiteImage = cv::imread(cameraWhiteImagePath.toStdString(), cv::IMREAD_GRAYSCALE);
+        if (cameraWhitePoseId != poseNumber) {
+            logMessage(QString("%1: 警告 - 相机结果图Pose不一致(计算Pose_%2, 底图=%3)，跳过相机2D对比图输出")
+                           .arg(side.displayName)
+                           .arg(poseNumber)
+                           .arg(QFileInfo(cameraWhiteImagePath).fileName()));
+        } else if (cameraWhiteImage.empty()) {
+            logMessage(QString("%1: 警告 - 无法读取相机 _White 图(Pose_%2/Img_01)，跳过相机2D对比图输出")
+                           .arg(side.displayName)
+                           .arg(poseNumber));
+        } else {
+            const QString cameraResultPath = QString("%1/Pose_%2_Camera2DCompare.png").arg(cameraResultDirPath, poseNumber);
+            if (save2DCompareImage(cameraWhiteImage, cameraPoints, cameraProjected, "camera 2D compare", cameraResultPath)) {
+                logMessage(QString("%1: 相机2D对比图已保存: %2").arg(side.displayName, cameraResultPath));
             } else {
-                logMessage(QString("%1: 警告 - 相机2D对比图保存失败: %2").arg(side.displayName, resultPath));
+                logMessage(QString("%1: 警告 - 相机2D对比图保存失败: %2").arg(side.displayName, cameraResultPath));
             }
         }
 
-        const QString poseNote = autoCoordinateCalibrated ? " (已自动补齐坐标系位姿)" : "";
-        summaryMessage = QString("%1: Pose_%2 计算完成%3 | 相机误差 mean=%4 px, rms=%5 px, max=%6 px, N=%7 | "
-                                 "投影误差 mean=%8 px, rms=%9 px, max=%10 px, N=%11")
+        const QString projectorWhitePoseId = extractPoseIdFromImagePath(projectorWhiteImagePath);
+        cv::Mat projectorWhiteImage = cv::imread(projectorWhiteImagePath.toStdString(), cv::IMREAD_GRAYSCALE);
+        if (projectorWhitePoseId != poseNumber) {
+            logMessage(QString("%1: 警告 - 投影仪结果图Pose不一致(计算Pose_%2, 底图=%3)，跳过投影仪2D对比图输出")
+                           .arg(side.displayName)
+                           .arg(poseNumber)
+                           .arg(QFileInfo(projectorWhiteImagePath).fileName()));
+        } else if (projectorWhiteImage.empty()) {
+            logMessage(QString("%1: 警告 - 无法读取投影仪 _White 图(Pose_%2/Img_01)，跳过投影仪2D对比图输出")
+                           .arg(side.displayName)
+                           .arg(poseNumber));
+        } else {
+            const QString projectorResultPath = QString("%1/Pose_%2_Projector2DCompare.png").arg(projectorResultDirPath, poseNumber);
+            if (save2DCompareImage(projectorWhiteImage, projectorPoints, projectorProjected, "projector 2D compare", projectorResultPath)) {
+                logMessage(QString("%1: 投影仪2D对比图已保存: %2").arg(side.displayName, projectorResultPath));
+            } else {
+                logMessage(QString("%1: 警告 - 投影仪2D对比图保存失败: %2").arg(side.displayName, projectorResultPath));
+            }
+        }
+
+        summaryMessage = QString("%1: Pose_%2 计算完成 | 坐标转换=%3 | 相机误差 mean=%4 px, rms=%5 px, p95=%6 px, max=%7 px, N=%8 | "
+                                 "投影误差 mean=%9 px, rms=%10 px, p95=%11 px, max=%12 px, N=%13")
                              .arg(side.displayName)
                              .arg(poseNumber)
-                             .arg(poseNote)
+                             .arg(kFixedPoseTransformName)
                              .arg(camStats.mean, 0, 'f', 4)
                              .arg(camStats.rms, 0, 'f', 4)
+                             .arg(camStats.p95, 0, 'f', 4)
                              .arg(camStats.max, 0, 'f', 4)
                              .arg(camStats.count)
                              .arg(projStats.mean, 0, 'f', 4)
                              .arg(projStats.rms, 0, 'f', 4)
+                             .arg(projStats.p95, 0, 'f', 4)
                              .arg(projStats.max, 0, 'f', 4)
                              .arg(projStats.count);
         logMessage(summaryMessage);
@@ -1008,7 +1116,13 @@ void DailyQAWindow::onStartQAClicked()
 void DailyQAWindow::onStartComputeClicked()
 {
     if (m_isRunning) {
-        logMessage("当前已有任务在执行，请稍候");
+        logMessage("当前已有 QA 任务在执行，请稍候");
+        return;
+    }
+
+    if (!QADbManager::instance().isInitialized()) {
+        logMessage("QA数据库未初始化，无法写入每日QA计算结果");
+        QMessageBox::warning(this, tr("每日QA计算"), tr("QA数据库未初始化，无法执行计算写库流程"));
         return;
     }
 
@@ -1028,22 +1142,59 @@ void DailyQAWindow::onStartComputeClicked()
         m_deviceConfig.rightCameraSN,
         m_deviceConfig.rightProjectorTag
     };
+    std::vector<SideConfig> sides;
+    sides.push_back(leftSide);
+    sides.push_back(rightSide);
 
-    logMessage("开始每日 QA 误差计算流程(按左右两组分别输出)");
-
-    QString leftSummary;
-    QString rightSummary;
-    const SideComputeResult leftResult = computeSideProjectionError(leftSide, leftSummary);
-    const SideComputeResult rightResult = computeSideProjectionError(rightSide, rightSummary);
+    const auto toDbSide = [](const SideConfig& side) -> QString {
+        return side.folderName.compare("LeftSL", Qt::CaseInsensitive) == 0 ? "left" : "right";
+    };
 
     int successCount = 0;
     int skippedCount = 0;
     int failedCount = 0;
-    const SideComputeResult results[2] = {leftResult, rightResult};
-    for (SideComputeResult result : results) {
-        if (result == SideComputeResult::Success) {
+
+    logMessage("开始每日QA计算流程(固定标定板金标准位姿, 左右两组顺序执行)");
+    for (const SideConfig& side : sides) {
+        SideComputeData computeData;
+        QString summaryMessage;
+        const SideComputeResult computeResult = computeSideProjectionError(side, summaryMessage, computeData);
+
+        QString resultStatus = "failed";
+        if (computeResult == SideComputeResult::Success) {
+            resultStatus = "success";
+        } else if (computeResult == SideComputeResult::Skipped) {
+            resultStatus = "skipped";
+        }
+
+        const bool insertOk = QADbManager::instance().insertDailyQAReport(
+            QDate::currentDate(),
+            toDbSide(side),
+            "daily_qa",
+            side.cameraSN,
+            side.projectorTag,
+            resultStatus,
+            computeData.poseNumber,
+            computeData.pointCount,
+            computeData.cameraMeanPx,
+            computeData.cameraRmsPx,
+            computeData.cameraP95Px,
+            computeData.cameraMaxPx,
+            computeData.projectorMeanPx,
+            computeData.projectorRmsPx,
+            computeData.projectorP95Px,
+            computeData.projectorMaxPx,
+            summaryMessage);
+
+        SideComputeResult finalResult = computeResult;
+        if (!insertOk) {
+            logMessage(QString("%1: QA结果写入数据库失败").arg(side.displayName));
+            finalResult = SideComputeResult::Failed;
+        }
+
+        if (finalResult == SideComputeResult::Success) {
             ++successCount;
-        } else if (result == SideComputeResult::Skipped) {
+        } else if (finalResult == SideComputeResult::Skipped) {
             ++skippedCount;
         } else {
             ++failedCount;
@@ -1056,11 +1207,10 @@ void DailyQAWindow::onStartComputeClicked()
                                 .arg(failedCount);
     logMessage(summary);
 
-    const QString detail = QString("%1\n%2").arg(leftSummary, rightSummary);
     if (failedCount > 0) {
-        QMessageBox::warning(this, tr("每日QA计算"), summary + "\n\n" + detail);
+        QMessageBox::warning(this, tr("每日QA计算"), summary);
     } else {
-        QMessageBox::information(this, tr("每日QA计算"), summary + "\n\n" + detail);
+        QMessageBox::information(this, tr("每日QA计算"), summary);
     }
 
     m_isRunning = false;

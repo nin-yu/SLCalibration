@@ -95,3 +95,4 @@ SLCalibration.pro
 SLCalibration.code-workspace
 *.md
 /config.ini
+/installer
