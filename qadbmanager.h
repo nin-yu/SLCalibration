@@ -51,6 +51,18 @@ public:
                              double projectorMaxPx,
                              const QString& details = QString());
 
+    // 标定记录操作
+    bool insertCalibrationRecord(const QDate& calibrationDate,
+                                 const QString& deviceSide,
+                                 const QString& cameraSN,
+                                 const QString& projectorTag,
+                                 const QString& calibFilePath,
+                                 double rmsProj,
+                                 double rmsStereo,
+                                 double epiMeanPx,
+                                 double epiMedianPx,
+                                 const QString& details = QString());
+
     // 查询
     QSqlQueryModel* createReportModel(const QDate& fromDate,
                                       const QDate& toDate,

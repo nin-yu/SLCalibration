@@ -236,6 +236,43 @@ bool QADbManager::insertDailyQAReport(const QDate& reportDate,
     return true;
 }
 
+bool QADbManager::insertCalibrationRecord(const QDate& calibrationDate,
+                                           const QString& deviceSide,
+                                           const QString& cameraSN,
+                                           const QString& projectorTag,
+                                           const QString& calibFilePath,
+                                           double rmsProj,
+                                           double rmsStereo,
+                                           double epiMeanPx,
+                                           double epiMedianPx,
+                                           const QString& details)
+{
+    if (!m_initialized) return false;
+
+    QSqlQuery query(m_db);
+    query.prepare(
+        "INSERT INTO calibration_records (calibration_date, device_side, camera_sn, "
+        "projector_tag, calib_file_path, rms_proj, rms_stereo, epi_mean_px, epi_median_px, details) "
+        "VALUES (:date, :side, :camera, :projector, :filePath, :rmsProj, :rmsStereo, :epiMean, :epiMedian, :details)"
+    );
+    query.bindValue(":date", calibrationDate.toString(Qt::ISODate));
+    query.bindValue(":side", deviceSide);
+    query.bindValue(":camera", cameraSN);
+    query.bindValue(":projector", projectorTag);
+    query.bindValue(":filePath", calibFilePath);
+    query.bindValue(":rmsProj", rmsProj);
+    query.bindValue(":rmsStereo", rmsStereo);
+    query.bindValue(":epiMean", epiMeanPx);
+    query.bindValue(":epiMedian", epiMedianPx);
+    query.bindValue(":details", details);
+
+    if (!query.exec()) {
+        qDebug() << "插入标定记录失败:" << query.lastError().text();
+        return false;
+    }
+    return true;
+}
+
 QSqlQueryModel* QADbManager::createReportModel(const QDate& fromDate,
                                                 const QDate& toDate,
                                                 const QString& deviceSide,
