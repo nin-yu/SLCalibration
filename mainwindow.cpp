@@ -5,6 +5,7 @@
 #include "qareportwindow.h"
 #include "qadbmanager.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
@@ -32,7 +33,7 @@ MainWindow::MainWindow(QWidget *parent)
     }
 
     // 初始化SQLite数据库
-    QString dbPath = QDir::currentPath() + "/qa_reports.db";
+    QString dbPath = QCoreApplication::applicationDirPath() + "/qa_reports.db";
     QADbManager::instance().initialize(dbPath);
 
     // 连接三个导航按钮
@@ -74,7 +75,7 @@ bool MainWindow::createDefaultConfigFile(const QString& filePath)
 
 bool MainWindow::loadConfiguration()
 {
-    QString configFile = QDir::currentPath() + "/config.ini";
+    QString configFile = QCoreApplication::applicationDirPath() + "/config.ini";
     
     // 检查配置文件是否存在，如果不存在则创建默认文件
     if (!QFile::exists(configFile)) {
