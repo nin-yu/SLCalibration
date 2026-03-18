@@ -7,24 +7,7 @@
 #include <map>
 #include <string>
 
-// GrayCode helper class
-class GrayCode
-{
-public:
-    GrayCode(int n);
-    ~GrayCode();
-
-    cv::Mat m_codes; // Matrix of size n x 2^n, storing 0/1 values
-    std::map<int, int> m_code2k_int; // Map from binary value to k index
-    std::map<int, int> m_k2v; // Old map: k -> binary value
-
-private:
-    int m_n;
-    std::vector<std::string> __createGrayCode(int n);
-    void __formCodes(int n, const std::vector<std::string>& code_temp);
-    std::string __code2k(int k);
-    int __k2v(int k);
-};
+#include "graycode.h" // use centralized GrayCode
 
 class StructuredLightDecoder : public QObject
 {

@@ -42,6 +42,10 @@ public:
     // 检查连接状态
     bool checkConnection(const std::string& serialNum);
 
+    // LED 亮度控制
+    bool setLedBrightness(const std::string& serialNum, int brightnessPercent);
+    int  getLedBrightness(const std::string& serialNum);
+
 private:
     // 获取或创建投影仪实例
     ProjectorControlDll* GetInstance(const std::string& sn);

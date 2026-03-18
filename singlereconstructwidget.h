@@ -2,8 +2,7 @@
 #define SINGLERECONSTRUCTWIDGET_H
 
 #include <QWidget>
-#include <QQueue>
-#include <QMutex>
+#include <QVector>
 #include <atomic>
 #include <opencv2/opencv.hpp>
 #include <pcl/point_cloud.h>
@@ -111,14 +110,15 @@ signals:
 
 private slots:
     /**
-     * @brief Start reconstruction button clicked
+     * @brief Continuous reconstruction button toggled (start/stop)
+     * @param checked true if button is checked (running)
      */
-    void on_pushButton_startReconstruct_clicked();
+    void on_pushButton_continueReconstruction_toggled(bool checked);
 
     /**
-     * @brief Stop reconstruction button clicked
+     * @brief Offline reconstruction button clicked
      */
-    void on_pushButton_stopReconstruct_clicked();
+    void on_pushButton_offlineReconstruction_clicked();
 
     /**
      * @brief Handle point cloud ready signal from process worker
@@ -141,6 +141,20 @@ private:
      * @return true if successful
      */
     bool initializeReconstruction();
+
+    /**
+     * @brief Initialize reconstruction engine for specific device (left/right)
+     * @param isLeftDevice true for left device, false for right device
+     * @return true if successful
+     */
+    bool initializeReconstructionForDevice(bool isLeftDevice);
+
+    /**
+     * @brief Get calibration file path for specific device
+     * @param isLeftDevice true for left device, false for right device
+     * @return Path to calibration file
+     */
+    QString getCalibrationFilePathForDevice(bool isLeftDevice) const;
 
     /**
      * @brief Start the projector pattern sequence
@@ -170,6 +184,27 @@ private:
      * @return Path to calibration_data.xml
      */
     QString getCalibrationFilePath() const;
+
+    /**
+     * @brief Get offline calibration file path based on device type
+     * @param isLeftDevice true for left device, false for right device
+     * @return Path to calibration file
+     */
+    QString getOfflineCalibrationFilePath(bool isLeftDevice) const;
+
+    /**
+     * @brief Load offline images from directory based on device type
+     * @param imageDir Directory containing offline images
+     * @param isLeftDevice true for left device (set_0img_*.bmp), false for right device (set_1img_*.bmp)
+     * @return Vector of loaded images
+     */
+    QVector<cv::Mat> loadOfflineImages(const QString& imageDir, bool isLeftDevice) const;
+
+    /**
+     * @brief Check if another device is currently reconstructing
+     * @return true if another device is busy
+     */
+    bool isOtherDeviceReconstructing() const;
 
     /**
      * @brief Clean up worker threads
@@ -204,10 +239,6 @@ private:
     ReconEngine* m_reconEngine;
     ReconGrabWorker* m_grabWorker;
     ReconProcessWorker* m_processWorker;
-
-    // Shared data structures (producer-consumer)
-    QQueue<ReconImageBatch> m_reconImageQueue;
-    QMutex m_reconBufferMutex;
 
     // State
     bool m_isReconstructing;

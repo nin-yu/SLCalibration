@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>473</width>
-    <height>479</height>
+    <width>778</width>
+    <height>745</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,23 +15,26 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout_2">
    <item>
-    <layout class="QVBoxLayout" name="verticalLayout" stretch="7,1">
+    <layout class="QVBoxLayout" name="verticalLayout" stretch="5,1">
      <item>
       <widget class="PointCloudWidget" name="pointcloudwidget"/>
      </item>
      <item>
-      <layout class="QHBoxLayout" name="horizontalLayout">
-       <item>
-        <widget class="QPushButton" name="pushButton_startReconstruct">
+      <layout class="QGridLayout" name="gridLayout">
+       <item row="0" column="0">
+        <widget class="QPushButton" name="pushButton_offlineReconstruction">
          <property name="text">
-          <string>开始重建</string>
+          <string>离线重建</string>
          </property>
         </widget>
        </item>
-       <item>
-        <widget class="QPushButton" name="pushButton_stopReconstruct">
+       <item row="0" column="1">
+        <widget class="QPushButton" name="pushButton_continueReconstruction">
          <property name="text">
-          <string>停止重建</string>
+          <string>连续重建</string>
+         </property>
+         <property name="checkable">
+          <bool>true</bool>
          </property>
         </widget>
        </item>

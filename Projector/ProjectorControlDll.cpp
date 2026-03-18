@@ -573,4 +573,38 @@ int ProjectorControlDll::IsProjectorConnected()
     }
 }
 
+bool ProjectorControlDll::SetLedBrightness(int brightnessPercent)
+{
+    Activate();
+
+    // 将百分比 (0-100) 转换为 LED 电流值 (0-255)
+    unsigned char currentValue = static_cast<unsigned char>(brightnessPercent * 255 / 100);
+
+    // 设置三色 LED 电流值
+    if (DLPC350_SetLedCurrents(currentValue, currentValue, currentValue) == 0)
+    {
+        return true;
+    }
+    return false;
+}
+
+int ProjectorControlDll::GetLedBrightness() const
+{
+    // 由于 Activate() 不是 const 方法，这里需要 const_cast
+    ProjectorControlDll* nonConstThis = const_cast<ProjectorControlDll*>(this);
+    nonConstThis->Activate();
+
+    unsigned char redCurrent = 0;
+    unsigned char greenCurrent = 0;
+    unsigned char blueCurrent = 0;
+
+    if (DLPC350_GetLedCurrents(&redCurrent, &greenCurrent, &blueCurrent) == 0)
+    {
+        // 返回平均值并转换为百分比
+        unsigned char avgCurrent = (redCurrent + greenCurrent + blueCurrent) / 3;
+        return (avgCurrent * 100) / 255;
+    }
+    return -1;
+}
+
 

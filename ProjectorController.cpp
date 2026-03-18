@@ -110,3 +110,21 @@ bool ProjectorController::checkConnection(const std::string& serialNum)
     }
     return false;
 }
+
+bool ProjectorController::setLedBrightness(const std::string& serialNum, int brightnessPercent)
+{
+    ProjectorControlDll* proj = GetInstance(serialNum);
+    if (proj) {
+        return proj->SetLedBrightness(brightnessPercent);
+    }
+    return false;
+}
+
+int ProjectorController::getLedBrightness(const std::string& serialNum)
+{
+    ProjectorControlDll* proj = GetInstance(serialNum);
+    if (proj) {
+        return proj->GetLedBrightness();
+    }
+    return -1;
+}

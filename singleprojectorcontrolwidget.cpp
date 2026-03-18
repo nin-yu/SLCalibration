@@ -12,6 +12,7 @@ SingleProjectorControlWidget::SingleProjectorControlWidget(ProjectorController* 
     : QWidget(parent)
     , ui(new Ui::SingleProjectorControlWidget)
     , m_exposureTime(41000)  // 初始化曝光时间为41000微秒
+    , m_ledBrightness(60)    // 初始化LED亮度为60%
     , m_triggerMode(0)       // 初始化触发模式为0 内触发
     , m_patternIndex(0)      // 初始化投影图案索引为0
     , m_controller(controller)  // 初始化DLL控制器实例
@@ -114,7 +115,13 @@ void SingleProjectorControlWidget::updateUIControls()
             lineEdit_ProjectorExposureTime->setText(QString::number(m_exposureTime));
         }
         if (lineEdit_ProjectorBrightness) {
-            lineEdit_ProjectorBrightness->setText(QString::number(100));
+            // 使用当前成员变量值或从投影仪读取
+            int brightness = m_ledBrightness;
+            if (brightness <= 0 || brightness > 100) {
+                brightness = 60; // 默认亮度60%
+                m_ledBrightness = brightness;
+            }
+            lineEdit_ProjectorBrightness->setText(QString::number(brightness));
         }
         if (comboBox_ProjectorMode) {
             comboBox_ProjectorMode->setCurrentIndex(0); // 默认USB模式
@@ -151,7 +158,7 @@ void SingleProjectorControlWidget::updateUIControls()
 }
 
 // 打开投影仪按钮点击事件
-void SingleProjectorControlWidget::on_pushButton_ProjectorOpen_clicked() //TODO 需要重写跟检测函数按钮有冲突
+void SingleProjectorControlWidget::on_pushButton_ProjectorOpen_clicked() 
 {
     if (!m_controller) {
         emit statusUpdated("控制器未初始化");
@@ -194,6 +201,21 @@ void SingleProjectorControlWidget::on_pushButton_ProjectorPlay_clicked()
         return;
     }
 
+    // 检查投影仪是否已连接
+    if (!m_controller->checkConnection(m_tagName.toStdString())) {
+        emit statusUpdated(QString("投影仪 %1 未连接").arg(m_tagName));
+        return;
+    }
+
+    // 应用LED亮度设置
+    if (m_ledBrightness >= 0 && m_ledBrightness <= 100) {
+        if (m_controller->setLedBrightness(m_tagName.toStdString(), m_ledBrightness)) {
+            emit statusUpdated(QString("投影仪 %1 亮度设置为 %2%").arg(m_tagName).arg(m_ledBrightness));
+        } else {
+            emit statusUpdated(QString("投影仪 %1 亮度设置失败").arg(m_tagName));
+        }
+    }
+
     // 使用内部成员变量中的参数值
     int exposureTime = m_exposureTime;
     int patternIndex = m_patternIndex;
@@ -202,7 +224,7 @@ void SingleProjectorControlWidget::on_pushButton_ProjectorPlay_clicked()
     // 使用ProjectorController的DLL函数开始投影
     m_controller->sendAndPlayProjector(m_tagName.toStdString(), triggerMode, patternIndex, exposureTime);
 
-    emit statusUpdated(QString("投影仪开始投影 (%1)").arg(m_tagName));
+    emit statusUpdated(QString("投影仪开始投影 (%1), 曝光时间: %2μs").arg(m_tagName).arg(exposureTime));
     updateUIControls();
 }
 
@@ -241,10 +263,10 @@ void SingleProjectorControlWidget::on_lineEdit_ProjectorExposureTime_textChanged
 // LED亮度文本改变事件
 void SingleProjectorControlWidget::on_lineEdit_ProjectorBrightness_textChanged(const QString& text)
 {
-    // 更新LED亮度成员变量
+    // 仅更新LED亮度成员变量，不立即下发到投影仪
     bool ok;
     int newBrightness = text.toInt(&ok);
-    if (ok && newBrightness >= 0) {
+    if (ok && newBrightness >= 0 && newBrightness <= 100) {
         m_ledBrightness = newBrightness;
     }
 }

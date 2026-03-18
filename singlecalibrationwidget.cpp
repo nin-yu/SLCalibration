@@ -502,13 +502,24 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
     int triggerMode = 1;  // 硬件触发模式
     int patternIndex = 6; // 默认标定序列
     int exposureTime = 500000; // 默认曝光时间500ms
+    int ledBrightness = 100; // 默认亮度100%
 
     if (m_projectorWidget) {
         patternIndex = m_projectorWidget->getPatternIndex();
         exposureTime = m_projectorWidget->getExposureTime();
-        logMessage(formatPoseMsg(currentPoseNumber, QString("使用投影仪参数 - 图案: %1, 曝光: %2μs").arg(patternIndex).arg(exposureTime)));
+        ledBrightness = m_projectorWidget->getLedBrightness();
+        logMessage(formatPoseMsg(currentPoseNumber, QString("使用投影仪参数 - 图案: %1, 曝光: %2μs, 亮度: %3%").arg(patternIndex).arg(exposureTime).arg(ledBrightness)));
     } else {
         logMessage(formatPoseMsg(currentPoseNumber, "警告: 投影仪控制组件未设置，使用默认参数"));
+    }
+
+    // 设置投影仪LED亮度
+    if (m_projectorController->checkConnection(m_deviceTag.toStdString())) {
+        if (m_projectorController->setLedBrightness(m_deviceTag.toStdString(), ledBrightness)) {
+            logMessage(formatPoseMsg(currentPoseNumber, QString("投影仪亮度设置为 %1%").arg(ledBrightness)));
+        } else {
+            logMessage(formatPoseMsg(currentPoseNumber, "警告: 投影仪亮度设置失败"));
+        }
     }
 
     if (!m_projectorController->sendAndPlayProjector(m_deviceTag.toStdString(), triggerMode, patternIndex, exposureTime)) {

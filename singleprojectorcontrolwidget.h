@@ -43,6 +43,7 @@ public:
     int getExposureTime() const { return m_exposureTime; }
     int getTriggerMode() const { return m_triggerMode; }
     int getPatternIndex() const { return m_patternIndex; }
+    int getLedBrightness() const { return m_ledBrightness; }
 
     // 应用参数到投影仪
     void applyParameters();

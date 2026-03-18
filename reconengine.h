@@ -2,136 +2,96 @@
 #define RECONENGINE_H
 
 #include <QObject>
-#include <opencv2/opencv.hpp>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include "gcpscalib.h"
-#include "structuredlightdecoder.h"
-
-// Point cloud types (same as pointcloudwidget.h)
-typedef pcl::PointXYZ PointT;
-typedef pcl::PointCloud<PointT> PointCloudT;
+#include "recontypes.h"
+#include "structuredlightdecoderRecon.h"
 
 /**
- * @class ReconEngine
- * @brief 3D reconstruction engine for structured light scanning
+ * @brief 三维重建引擎
  * 
- * This class encapsulates the complete reconstruction pipeline:
- * - Image undistortion
- * - Phase decoding (Gray code + Phase shift)
- * - Triangulation to 3D points
- * - Conversion to PCL point cloud
+ * 整合标定数据加载、结构光解码和三维点云重建功能
  */
 class ReconEngine : public QObject
 {
     Q_OBJECT
 
 public:
-    explicit ReconEngine(QObject *parent = nullptr);
+    explicit ReconEngine(QObject* parent = nullptr);
     ~ReconEngine();
 
     /**
-     * @brief Load calibration data from XML file
-     * @param calibFilePath Path to calibration_data.xml
-     * @return true if loaded successfully
+     * @brief 加载标定数据
+     * @param calibFilePath 标定文件路径（XML格式）
+     * @param scale 缩放因子（默认1.0）
+     * @return 成功返回true
      */
-    bool loadCalibration(const QString& calibFilePath);
+    bool loadCalibration(const QString& calibFilePath, double scale = 1.0);
 
     /**
-     * @brief Check if calibration data is loaded
+     * @brief 从图像批次重建点云
+     * @param imageBatch 图像批次（5张格雷码 + 4张相移 = 9张）
+     * @return 重建的点云
      */
-    bool isCalibrationLoaded() const { return m_calibLoaded; }
+    PointCloudT::Ptr reconstruct(const ReconImageBatch& imageBatch);
 
     /**
-     * @brief Reconstruct 3D point cloud from a batch of images
-     * @param imageBatch Vector of 11 images (Pattern 8: white, dark, 5 GC, 4 PS)
-     * @return Point cloud pointer, or nullptr on failure
-     * 
-     * Image order in batch (Pattern 8):
-     *   [0] = White image
-     *   [1] = Dark image
-     *   [2-6] = Gray code images (5 images)
-     *   [7-10] = Phase shift images (4 images)
+     * @brief 设置调制阈值
+     * @param threshold 调制阈值（默认70）
      */
-    PointCloudT::Ptr reconstruct(const QVector<cv::Mat>& imageBatch);
+    void setModulationThreshold(double threshold);
 
     /**
-     * @brief Get calibration data
+     * @brief 设置深度范围
+     * @param minDepth 最小深度（mm）
+     * @param maxDepth 最大深度（mm）
      */
-    const CalibrationData& getCalibrationData() const { return m_calibData; }
+    void setDepthRange(float minDepth, float maxDepth);
 
     /**
-     * @brief Set modulation threshold for mask generation
-     * @param threshold Value between 0.0 and 1.0 (default: 0.1)
+     * @brief 获取标定数据
      */
-    void setModulationThreshold(double threshold) { m_modulationThreshold = threshold; }
+    const CalibData& getCalibData() const { return m_calibData; }
 
     /**
-     * @brief Set valid depth range for filtering
-     * @param minZ Minimum Z value in mm (default: 200)
-     * @param maxZ Maximum Z value in mm (default: 1500)
+     * @brief 检查是否已加载标定数据
      */
-    void setDepthRange(float minZ, float maxZ) { m_minZ = minZ; m_maxZ = maxZ; }
+    bool isCalibrationLoaded() const { return m_calibrationLoaded; }
 
 signals:
     /**
-     * @brief Signal emitted when an error occurs
+     * @brief 错误发生信号
      */
     void errorOccurred(const QString& message);
 
 private:
     /**
-     * @brief Undistort a batch of images using precomputed maps
+     * @brief 创建调制掩码
+     * @param ps_imgs 4张相移图像
+     * @param threshold 调制阈值
+     * @return 有效像素掩码 (CV_8U)
      */
-    void undistortImages(const QVector<cv::Mat>& input, QVector<cv::Mat>& output);
+    cv::Mat createModulationMask(const std::vector<cv::Mat>& ps_imgs, int threshold);
 
     /**
-     * @brief Create modulation mask from phase shift images
+     * @brief 重建三维点
+     * @param map_up 投影仪X坐标图 (CV_32F)
+     * @param valid_mask 有效像素掩码 (CV_8U)
+     * @param out_points_3d 输出的三维点 (CV_32FC3)
+     * @return 成功返回true
      */
-    cv::Mat createModulationMask(const QVector<cv::Mat>& psImages, const cv::Mat& darkImage);
+    bool reconstruct3DPoints(const cv::Mat& map_up,
+        const cv::Mat& valid_mask,
+        cv::Mat& out_points_3d);
 
     /**
-     * @brief Perform triangulation to get 3D points
-     * @param phaseMapU Vertical phase map (converted to projector U coordinate)
-     * @param validMask Binary mask of valid pixels
-     * @return CV_32FC3 matrix containing 3D points (X, Y, Z)
+     * @brief 预计算重建参数
      */
-    cv::Mat triangulate3D(const cv::Mat& phaseMapU, const cv::Mat& validMask);
+    void precomputeReconstructionParams();
 
-    /**
-     * @brief Convert OpenCV 3D points matrix to PCL point cloud
-     */
-    PointCloudT::Ptr convertToPCL(const cv::Mat& points3D, const cv::Mat& validMask);
-
-    /**
-     * @brief Initialize undistortion maps from calibration data
-     */
-    void initUndistortMaps();
-
-    // Calibration data
-    CalibrationData m_calibData;
-    bool m_calibLoaded;
-
-    // Structured light decoder
-    StructuredLightDecoder* m_decoder;
-
-    // Precomputed undistortion maps
-    cv::Mat m_undistortMapX;
-    cv::Mat m_undistortMapY;
-
-    // Reconstruction parameters
-    int m_nGrayCode;
-    int m_nPhaseShift;
-    double m_modulationThreshold;
-    float m_minZ;
-    float m_maxZ;
-
-    // Precomputed triangulation coefficients
-    cv::Mat m_xCamNorm;  // Normalized camera x coordinates
-    cv::Mat m_yCamNorm;  // Normalized camera y coordinates
-    cv::Mat m_Jx;        // Jacobian x component
-    cv::Mat m_Jz;        // Jacobian z component
-    float m_tx, m_tz;    // Translation components
+private:
+    CalibData m_calibData;              // 标定数据
+    ReconParams m_params;               // 重建参数
+    StructuredLightDecoderRecon* m_decoder;  // 结构光解码器
+    bool m_calibrationLoaded;           // 标定数据是否已加载
 };
 
 #endif // RECONENGINE_H

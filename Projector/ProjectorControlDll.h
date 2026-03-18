@@ -25,6 +25,10 @@ public :
 	void CloseProjector();
 	int  IsProjectorConnected();
 
+	// LED 亮度控制
+	bool SetLedBrightness(int brightnessPercent);
+	int  GetLedBrightness() const;
+
 	std::string m_serialNumber;
 	int m_projIdx;
 	int m_expose;

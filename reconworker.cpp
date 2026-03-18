@@ -1,224 +1,189 @@
 #include "reconworker.h"
+#include "CameraController.h"
+#include "reconengine.h"
 #include <QDebug>
 #include <QElapsedTimer>
 
-// Register metatype at static initialization time
-static struct RegisterMetaTypes {
-    RegisterMetaTypes() {
-        qRegisterMetaType<PointCloudT::Ptr>("PointCloudT::Ptr");
-    }
-} s_registerMetaTypes;
-
 // ============================================================================
-// ReconGrabWorker Implementation
+// ReconGrabWorker 实现
 // ============================================================================
 
-ReconGrabWorker::ReconGrabWorker(CCameraController* cameraCtrl,
+ReconGrabWorker::ReconGrabWorker(CCameraController* cameraController,
                                  void* cameraHandle,
-                                 QQueue<ReconImageBatch>* imageQueue,
-                                 QMutex* queueMutex,
+                                 int framesPerBatch,
                                  QObject* parent)
     : QThread(parent)
-    , m_cameraCtrl(cameraCtrl)
+    , m_cameraController(cameraController)
     , m_cameraHandle(cameraHandle)
-    , m_imageQueue(imageQueue)
-    , m_queueMutex(queueMutex)
-    , m_stopFlag(false)
-    , m_skipFirstBatch(true)
-    , m_framesPerBatch(11)  // Pattern 8: 1 white + 1 dark + 5 GC + 4 PS
-    , m_pImageBuffer(nullptr)
-    , m_bufferSize(0)
+    , m_framesPerBatch(framesPerBatch)
+    , m_running(false)
 {
-    // Allocate buffer for camera images (assume max 4K resolution with 16-bit depth)
-    m_bufferSize = 4096 * 4096 * 2;  // 32MB buffer
-    m_pImageBuffer = new unsigned char[m_bufferSize];
 }
 
 ReconGrabWorker::~ReconGrabWorker()
 {
-    if (m_pImageBuffer) {
-        delete[] m_pImageBuffer;
-        m_pImageBuffer = nullptr;
-    }
+    stop();
 }
 
 void ReconGrabWorker::stop()
 {
-    m_stopFlag = true;
+    m_running = false;
+    m_queueCondition.wakeAll();
 }
 
 void ReconGrabWorker::run()
 {
-    qDebug() << "ReconGrabWorker started, frames per batch:" << m_framesPerBatch;
-
-    ReconImageBatch currentBatch;
-    currentBatch.reserve(m_framesPerBatch);
-    int batchCount = 0;
-    bool isFirstBatch = true;
-
-    while (!m_stopFlag) {
-        // Get image from camera (blocking call with timeout)
-        MV_FRAME_OUT_INFO_EX frameInfo = {0};
+    m_running = true;
+    
+    // 分配图像缓冲区
+    size_t bufferSize = 4096 * 4096 * 2;
+    unsigned char* imageBuffer = new unsigned char[bufferSize];
+    
+    ReconImageBatch batch;
+    batch.reserve(m_framesPerBatch);
+    
+    while (m_running)
+    {
+        batch.clear();
         
-        // GetImage blocks until a hardware trigger is received or timeout
-        bool success = m_cameraCtrl->GetImage(
-            m_cameraHandle,
-            m_pImageBuffer,
-            static_cast<unsigned int>(m_bufferSize),
-            &frameInfo
-        );
-
-        if (m_stopFlag) {
-            break;
-        }
-
-        if (!success) {
-            // Timeout or error - continue waiting
-            continue;
-        }
-
-        // Convert to cv::Mat and clone (important: must clone to avoid buffer overwrite)
-        cv::Mat rawImage;
-        
-        // Determine image format based on pixel type
-        if (frameInfo.enPixelType == PixelType_Gvsp_Mono8) {
-            rawImage = cv::Mat(frameInfo.nHeight, frameInfo.nWidth, CV_8UC1, m_pImageBuffer).clone();
-        } else if (frameInfo.enPixelType == PixelType_Gvsp_Mono10 ||
-                   frameInfo.enPixelType == PixelType_Gvsp_Mono12 ||
-                   frameInfo.enPixelType == PixelType_Gvsp_Mono16) {
-            // For 10/12/16-bit images, convert to 8-bit
-            cv::Mat rawMat(frameInfo.nHeight, frameInfo.nWidth, CV_16UC1, m_pImageBuffer);
-            rawMat.convertTo(rawImage, CV_8UC1, 1.0 / 256.0);
-        } else {
-            // Assume 8-bit grayscale for other formats
-            rawImage = cv::Mat(frameInfo.nHeight, frameInfo.nWidth, CV_8UC1, m_pImageBuffer).clone();
-        }
-
-        // Add to current batch
-        currentBatch.append(rawImage);
-
-        // Check if batch is complete
-        if (currentBatch.size() >= m_framesPerBatch) {
-            if (isFirstBatch && m_skipFirstBatch) {
-                // Skip the first batch (may be incomplete due to sync issues)
-                qDebug() << "Skipping first batch (sync)";
-                currentBatch.clear();
-                currentBatch.reserve(m_framesPerBatch);
-                isFirstBatch = false;
+        // 采集一批图像
+        int collectedFrames = 0;
+        while (collectedFrames < m_framesPerBatch && m_running)
+        {
+            MV_FRAME_OUT_INFO_EX frameInfo = {0};
+            
+            bool success = m_cameraController->GetImage(
+                m_cameraHandle,
+                imageBuffer,
+                static_cast<unsigned int>(bufferSize),
+                &frameInfo
+            );
+            
+            if (!success)
+            {
                 continue;
             }
-
-            // Enqueue the batch
+            
+            // 转换为cv::Mat
+            cv::Mat rawImage;
+            if (frameInfo.enPixelType == PixelType_Gvsp_Mono8)
             {
-                QMutexLocker locker(m_queueMutex);
-                m_imageQueue->enqueue(currentBatch);
-                int queueSize = m_imageQueue->size();
-                emit batchEnqueued(queueSize);
-                
-                if (queueSize > 5) {
-                    qDebug() << "Warning: queue growing large:" << queueSize << "batches";
-                }
+                rawImage = cv::Mat(frameInfo.nHeight, frameInfo.nWidth, CV_8UC1, imageBuffer).clone();
             }
-
-            ++batchCount;
-            qDebug() << "Batch" << batchCount << "enqueued";
-
-            // Reset for next batch
-            currentBatch.clear();
-            currentBatch.reserve(m_framesPerBatch);
-            isFirstBatch = false;
+            else if (frameInfo.enPixelType == PixelType_Gvsp_Mono10 ||
+                     frameInfo.enPixelType == PixelType_Gvsp_Mono12 ||
+                     frameInfo.enPixelType == PixelType_Gvsp_Mono16)
+            {
+                cv::Mat rawMat(frameInfo.nHeight, frameInfo.nWidth, CV_16UC1, imageBuffer);
+                rawMat.convertTo(rawImage, CV_8UC1, 1.0 / 256.0);
+            }
+            else
+            {
+                rawImage = cv::Mat(frameInfo.nHeight, frameInfo.nWidth, CV_8UC1, imageBuffer).clone();
+            }
+            
+            batch.append(rawImage);
+            ++collectedFrames;
+        }
+        
+        // 将批次放入队列
+        if (batch.size() == m_framesPerBatch)
+        {
+            QMutexLocker locker(&m_queueMutex);
+            m_imageQueue.enqueue(batch);
+            m_queueCondition.wakeOne();
+            emit batchEnqueued(m_imageQueue.size());
         }
     }
-
-    qDebug() << "ReconGrabWorker stopped, total batches:" << batchCount;
+    
+    delete[] imageBuffer;
 }
 
 // ============================================================================
-// ReconProcessWorker Implementation
+// ReconProcessWorker 实现
 // ============================================================================
 
 ReconProcessWorker::ReconProcessWorker(ReconEngine* reconEngine,
-                                       QQueue<ReconImageBatch>* imageQueue,
-                                       QMutex* queueMutex,
+                                       QQueue<ReconImageBatch>& imageQueue,
+                                       QMutex& queueMutex,
+                                       QWaitCondition& queueCondition,
                                        QObject* parent)
     : QThread(parent)
     , m_reconEngine(reconEngine)
     , m_imageQueue(imageQueue)
     , m_queueMutex(queueMutex)
-    , m_stopFlag(false)
+    , m_queueCondition(queueCondition)
+    , m_running(false)
+    , m_processedCount(0)
+    , m_lastFps(0.0)
 {
 }
 
 ReconProcessWorker::~ReconProcessWorker()
 {
+    stop();
 }
 
 void ReconProcessWorker::stop()
 {
-    m_stopFlag = true;
+    m_running = false;
+    m_queueCondition.wakeAll();
 }
 
 void ReconProcessWorker::run()
 {
-    qDebug() << "ReconProcessWorker started";
-
-    QElapsedTimer timer;
-    int processedCount = 0;
-    double totalTime = 0.0;
-
-    while (!m_stopFlag) {
+    m_running = true;
+    m_processedCount = 0;
+    
+    QElapsedTimer fpsTimer;
+    fpsTimer.start();
+    
+    while (m_running)
+    {
         ReconImageBatch batch;
-        bool hasBatch = false;
-
-        // Try to get a batch from the queue
+        
+        // 从队列获取批次
         {
-            QMutexLocker locker(m_queueMutex);
-            if (!m_imageQueue->isEmpty()) {
-                batch = m_imageQueue->dequeue();
-                hasBatch = true;
+            QMutexLocker locker(&m_queueMutex);
+            while (m_imageQueue.isEmpty() && m_running)
+            {
+                m_queueCondition.wait(&m_queueMutex, 100);
             }
-        }
-
-        if (!hasBatch) {
-            // No batch available, wait a bit
-            if (m_stopFlag) {
+            
+            if (!m_running)
+            {
                 break;
             }
-            msleep(10);
+            
+            if (!m_imageQueue.isEmpty())
+            {
+                batch = m_imageQueue.dequeue();
+            }
+        }
+        
+        if (batch.isEmpty())
+        {
             continue;
         }
-
-        // Process the batch
-        timer.start();
         
+        // 重建点云
         PointCloudT::Ptr cloud = m_reconEngine->reconstruct(batch);
         
-        qint64 elapsed = timer.elapsed();
-        totalTime += elapsed;
-        ++processedCount;
-
-        if (cloud && !cloud->empty()) {
-            // Calculate FPS
-            double avgTime = totalTime / processedCount;
-            double fps = 1000.0 / avgTime;
-
-            qDebug() << "Batch processed:" << elapsed << "ms,"
-                     << cloud->points.size() << "points,"
-                     << "avg FPS:" << QString::number(fps, 'f', 1);
-
-            // Emit the point cloud (use queued connection for thread safety)
+        if (cloud && !cloud->empty())
+        {
+            m_processedCount++;
+            
+            // 计算帧率
+            qint64 elapsedMs = fpsTimer.elapsed();
+            if (elapsedMs > 1000)
+            {
+                m_lastFps = m_processedCount * 1000.0 / elapsedMs;
+                m_processedCount = 0;
+                fpsTimer.restart();
+            }
+            
             emit pointCloudReady(cloud);
-            emit processingStats(fps, static_cast<int>(cloud->points.size()));
-        } else {
-            qDebug() << "Reconstruction failed or empty cloud";
-            emit errorOccurred("Reconstruction produced empty result");
+            emit processingStats(m_lastFps, static_cast<int>(cloud->size()));
         }
-    }
-
-    qDebug() << "ReconProcessWorker stopped, processed" << processedCount << "batches";
-    
-    if (processedCount > 0) {
-        double avgTime = totalTime / processedCount;
-        qDebug() << "Average processing time:" << avgTime << "ms";
     }
 }

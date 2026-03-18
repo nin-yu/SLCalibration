@@ -51,6 +51,11 @@ CalibrationWindow::CalibrationWindow(const DeviceConfig& config, QWidget *parent
     // 连接QTabWidget标签切换信号，实现三个区域的同步切换
     setupTabSynchronization();
 
+    // 直接初始化点云重建界面（不依赖标定完成）
+    if (initializeReconstructWidgets()) {
+        m_reconstructWidgetInitialized = true;
+    }
+
     // 记录配置信息到日志
     QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
     QString logMessage = QString("[%1] 标定窗口已启动\n左侧相机SN: %2\n右侧相机SN: %3\n左侧投影仪Tag: %4\n右侧投影仪Tag: %5")
@@ -387,21 +392,6 @@ void CalibrationWindow::onCalibrationCompleted(bool success, const QString& resu
     QString status = success ? "成功" : "失败";
     QString logMessage = QString("[%1] 标定完成[%2]: %3").arg(timestamp).arg(status).arg(result);
     ui->textEdit_CalibrationResults->append(logMessage);
-    
-    // 如果标定成功，初始化点云重建界面
-    if (success && !m_reconstructWidgetInitialized) {
-        logMessage = QString("[%1] 标定成功，开始初始化点云重建界面...").arg(timestamp);
-        ui->textEdit_CalibrationResults->append(logMessage);
-        
-        if (initializeReconstructWidgets()) {
-            m_reconstructWidgetInitialized = true;
-            logMessage = QString("[%1] 点云重建界面初始化成功").arg(timestamp);
-            ui->textEdit_CalibrationResults->append(logMessage);
-        } else {
-            logMessage = QString("[%1] 点云重建界面初始化失败").arg(timestamp);
-            ui->textEdit_CalibrationResults->append(logMessage);
-        }
-    }
 }
 
 void CalibrationWindow::onRightCameraImageReceived(const QImage& image)

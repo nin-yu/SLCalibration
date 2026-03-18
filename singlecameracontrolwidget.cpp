@@ -86,8 +86,8 @@ bool SingleCameraControlWidget::isGrabbing() const
 void SingleCameraControlWidget::initializeUI()
 {
     // 设置默认值
-    ui->spinBox_Exposure->setValue(15000);  // 15.00ms
-    ui->doubleSpinBox_Gain->setValue(2.0);   // 2dB
+    ui->spinBox_Exposure->setValue(25000);  // 25.00ms
+    ui->doubleSpinBox_Gain->setValue(0.0);   // 0dB
     ui->comboBox_TriggerMode->setCurrentIndex(0);  // 内触发
     ui->comboBox_TriggerEdge->setCurrentIndex(1);  // 上升沿
     ui->doubleSpinBox_TriggerDelay->setValue(0.0); // 无延迟
