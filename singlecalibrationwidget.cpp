@@ -35,14 +35,15 @@ SingleCalibrationWidget::SingleCalibrationWidget(ProjectorController* projectorC
     , m_imageBufferSize(0)
     , m_isCameraOpen(false)
     , m_isCalibrating(false)
-    , m_patternRows(20)
-    , m_patternCols(20)
+    // 从 ConfigManager 读取标定参数，消除硬编码
+    , m_patternRows(ConfigManager::instance().patternRows())
+    , m_patternCols(ConfigManager::instance().patternCols())
     , m_calibrator(nullptr)
-    , m_squareSizeParam(10.0f)
-    , m_projSize(912, 1140)
-    , m_projFreq(16)
-    , m_nGrayCode(5)
-    , m_nPhaseShift(4)
+    , m_squareSizeParam(static_cast<float>(ConfigManager::instance().squareSizeMm()))
+    , m_projSize(ConfigManager::instance().projectorSize())
+    , m_projFreq(ConfigManager::instance().projectorFrequency())
+    , m_nGrayCode(ConfigManager::instance().grayCodeBits())
+    , m_nPhaseShift(ConfigManager::instance().phaseShiftSteps())
     , m_processTimer(nullptr)
     , m_capturedImageCount(0)
     , m_targetImageCount(10)
@@ -500,15 +501,16 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationSequenceProjector_cl
 
     // 从投影仪控制组件获取参数
     int triggerMode = 1;  // 硬件触发模式
-    int patternIndex = 6; // 默认标定序列
+    // 硬编码投影仪标定序列为 6（标定专用图案序列）
+    int patternIndex = 6;
     int exposureTime = 500000; // 默认曝光时间500ms
     int ledBrightness = 100; // 默认亮度100%
 
     if (m_projectorWidget) {
-        patternIndex = m_projectorWidget->getPatternIndex();
+        // 注意：patternIndex 已硬编码为 6，不再从控件获取
         exposureTime = m_projectorWidget->getExposureTime();
         ledBrightness = m_projectorWidget->getLedBrightness();
-        logMessage(formatPoseMsg(currentPoseNumber, QString("使用投影仪参数 - 图案: %1, 曝光: %2μs, 亮度: %3%").arg(patternIndex).arg(exposureTime).arg(ledBrightness)));
+        logMessage(formatPoseMsg(currentPoseNumber, QString("使用投影仪参数 - 图案: %1(硬编码), 曝光: %2μs, 亮度: %3%").arg(patternIndex).arg(exposureTime).arg(ledBrightness)));
     } else {
         logMessage(formatPoseMsg(currentPoseNumber, "警告: 投影仪控制组件未设置，使用默认参数"));
     }
@@ -832,7 +834,7 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationCoordination_clicked
 
     logMessage("成功计算坐标变换矩阵");
 
-    // --- 10. 将新坐标系覆盖写入到投影仪标定文件 ---
+    // --- 10. 将新坐标系和最新相机内参覆盖写入到投影仪标定文件 ---
     QString projCalibPath = getCalibrationTypePath("Projector") + QString("/ProjectorParams_%1.xml").arg(sideCode);
     QFile projCalibFile(projCalibPath);
 
@@ -842,29 +844,43 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationCoordination_clicked
         return;
     }
 
-    // 生成新的 R_BoardToCam 和 T_BoardToCam XML 片段
+    // 生成新的 R_BoardToCam、T_BoardToCam XML 片段，以及最新的相机内参
     QString rBoardToCamXml;
     QString tBoardToCamXml;
+    QString camMatrixXml;
+    QString camDistXml;
     {
         // 使用临时内存缓冲区生成 XML 片段
         cv::FileStorage fsTmp(".tmp_calib.xml", cv::FileStorage::WRITE | cv::FileStorage::MEMORY);
         fsTmp << "R_BoardToCam" << R_board_to_cam;
         fsTmp << "T_BoardToCam" << T_board_to_cam;
+        fsTmp << "camMatrix" << camMatrix;
+        fsTmp << "camDist" << distCoeffs;
         std::string allXml = fsTmp.releaseAndGetString();
         
-        // 从完整 XML 中提取两个节点的片段
+        // 从完整 XML 中提取各个节点的片段
         QString fullXml = QString::fromStdString(allXml);
         QRegularExpression rRegex("<R_BoardToCam[\\s\\S]*?</R_BoardToCam>");
         QRegularExpression tRegex("<T_BoardToCam[\\s\\S]*?</T_BoardToCam>");
+        QRegularExpression camMatrixRegex("<camMatrix[\\s\\S]*?</camMatrix>");
+        QRegularExpression camDistRegex("<camDist[\\s\\S]*?</camDist>");
         
         QRegularExpressionMatch rMatch = rRegex.match(fullXml);
         QRegularExpressionMatch tMatch = tRegex.match(fullXml);
+        QRegularExpressionMatch camMatrixMatch = camMatrixRegex.match(fullXml);
+        QRegularExpressionMatch camDistMatch = camDistRegex.match(fullXml);
         
         if (rMatch.hasMatch()) {
             rBoardToCamXml = rMatch.captured(0);
         }
         if (tMatch.hasMatch()) {
             tBoardToCamXml = tMatch.captured(0);
+        }
+        if (camMatrixMatch.hasMatch()) {
+            camMatrixXml = camMatrixMatch.captured(0);
+        }
+        if (camDistMatch.hasMatch()) {
+            camDistXml = camDistMatch.captured(0);
         }
     }
 
@@ -902,6 +918,22 @@ void SingleCalibrationWidget::on_pushButton_StartCalibrationCoordination_clicked
     if (!hasOldT && !tBoardToCamXml.isEmpty()) {
         fileContent.replace("</opencv_storage>", tBoardToCamXml + "\n</opencv_storage>");
         logMessage("已追加新的 T_BoardToCam 数据");
+    }
+
+    // 同时更新相机内参（从最新的 CameraParams.xml 读取）
+    QRegularExpression camMatrixOldRegex("<camMatrix[\\s\\S]*?</camMatrix>");
+    QRegularExpression camDistOldRegex("<camDist[\\s\\S]*?</camDist>");
+    
+    bool hasOldCamMatrix = camMatrixOldRegex.match(fileContent).hasMatch();
+    bool hasOldCamDist = camDistOldRegex.match(fileContent).hasMatch();
+
+    if (hasOldCamMatrix && !camMatrixXml.isEmpty()) {
+        fileContent.replace(camMatrixOldRegex, camMatrixXml);
+        logMessage("已更新相机内参矩阵 (camMatrix)");
+    }
+    if (hasOldCamDist && !camDistXml.isEmpty()) {
+        fileContent.replace(camDistOldRegex, camDistXml);
+        logMessage("已更新相机畸变系数 (camDist)");
     }
 
     // 写回文件
@@ -1444,16 +1476,22 @@ bool SingleCalibrationWidget::loadProjectorImages()
 void SingleCalibrationWidget::on_spinBox_PatternRows_valueChanged(int arg1)
 {
     m_patternRows = arg1;
+    // 同步回写到 ConfigManager
+    ConfigManager::instance().setPatternRows(arg1);
 }
 
 void SingleCalibrationWidget::on_spinBox_PatternCols_valueChanged(int arg1)
 {
     m_patternCols = arg1;
+    // 同步回写到 ConfigManager
+    ConfigManager::instance().setPatternCols(arg1);
 }
 
 void SingleCalibrationWidget::on_doubleSpinBox_SquareSize_valueChanged(double arg1)
 {
     m_squareSizeParam = arg1;
+    // 同步回写到 ConfigManager
+    ConfigManager::instance().setSquareSizeMm(arg1);
 }
 
 // ==================== 状态更新函数 ====================

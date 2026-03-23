@@ -5,6 +5,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <opencv2/opencv.hpp>
+#include "configmanager.h"
 
 // 点云类型定义
 typedef pcl::PointXYZ PointT;
@@ -59,14 +60,28 @@ struct ReconParams
     int nPhaseShift;                // 相移图像数量
     int projFrequency;              // 投影仪频率
 
+    // 默认构造函数（作为安全回退）
     ReconParams()
         : modulationThreshold(70.0)
         , minDepth(200.0f)
-        , maxDepth(1500.0f)
+        , maxDepth(2000.0f)
         , nGrayCode(5)
         , nPhaseShift(4)
         , projFrequency(16)
     {}
+
+    // 从 ConfigManager 创建 ReconParams
+    static ReconParams fromConfig() {
+        auto& cfg = ConfigManager::instance();
+        ReconParams params;
+        params.modulationThreshold = cfg.modulationThreshold();
+        params.minDepth = static_cast<float>(cfg.minDepth());
+        params.maxDepth = static_cast<float>(cfg.maxDepth());
+        params.nGrayCode = cfg.grayCodeBits();
+        params.nPhaseShift = cfg.phaseShiftSteps();
+        params.projFrequency = cfg.projectorFrequency();
+        return params;
+    }
 };
 
 #endif // RECONTYPES_H

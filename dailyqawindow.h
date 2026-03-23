@@ -5,6 +5,7 @@
 #include <QString>
 #include <QStringList>
 #include "deviceconfig.h"
+#include "configmanager.h"
 
 class ProjectorController;
 class CCameraController;

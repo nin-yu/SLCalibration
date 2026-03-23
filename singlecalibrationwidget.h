@@ -21,6 +21,7 @@
 #include "ProjectorController.h"
 #include "CameraController.h"
 #include "singlecameracontrolwidget.h"
+#include "configmanager.h"
 #include "gcpscalib.h"
 #include <QProgressDialog>
 #include <QFile>

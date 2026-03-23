@@ -17,6 +17,7 @@ ReconGrabWorker::ReconGrabWorker(CCameraController* cameraController,
     , m_cameraHandle(cameraHandle)
     , m_framesPerBatch(framesPerBatch)
     , m_running(false)
+    , m_grabbedCount(0)
 {
 }
 
@@ -29,6 +30,20 @@ void ReconGrabWorker::stop()
 {
     m_running = false;
     m_queueCondition.wakeAll();
+}
+
+int ReconGrabWorker::getQueueDepth() const
+{
+    QMutexLocker locker(const_cast<QMutex*>(&m_queueMutex));
+    return m_imageQueue.size();
+}
+
+void ReconGrabWorker::clearQueue()
+{
+    QMutexLocker locker(&m_queueMutex);
+    while (!m_imageQueue.isEmpty()) {
+        m_imageQueue.dequeue();
+    }
 }
 
 void ReconGrabWorker::run()
@@ -86,11 +101,19 @@ void ReconGrabWorker::run()
             ++collectedFrames;
         }
         
-        // 将批次放入队列
+        // 将批次放入队列（带流量控制）
         if (batch.size() == m_framesPerBatch)
         {
             QMutexLocker locker(&m_queueMutex);
+            
+            // 队列深度限制：如果队列已满，丢弃最旧的批次
+            if (m_imageQueue.size() >= MAX_QUEUE_DEPTH) {
+                m_imageQueue.dequeue();  // 丢弃旧批次
+                qDebug() << "[ReconGrabWorker] Queue full, dropped oldest batch";
+            }
+            
             m_imageQueue.enqueue(batch);
+            m_grabbedCount++;
             m_queueCondition.wakeOne();
             emit batchEnqueued(m_imageQueue.size());
         }
@@ -167,7 +190,16 @@ void ReconProcessWorker::run()
         }
         
         // 重建点云
-        PointCloudT::Ptr cloud = m_reconEngine->reconstruct(batch);
+        PointCloudT::Ptr cloud;
+        try {
+            cloud = m_reconEngine->reconstruct(batch);
+        } catch (const std::exception& e) {
+            emit errorOccurred(QString("Reconstruction exception: %1").arg(e.what()));
+            continue;
+        } catch (...) {
+            emit errorOccurred("Unknown exception during reconstruction");
+            continue;
+        }
         
         if (cloud && !cloud->empty())
         {

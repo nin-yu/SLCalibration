@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "deviceconfig.h"
+#include "configmanager.h"
 
 class CalibrationWindow;
 class DailyQAWindow;

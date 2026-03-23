@@ -21,6 +21,7 @@ class ReconGrabWorker : public QThread
     Q_OBJECT
 
 public:
+    static const int MAX_QUEUE_DEPTH = 3;  // 最大队列深度，防止内存溢出
     /**
      * @brief 构造函数
      * @param cameraController 相机控制器
@@ -54,6 +55,21 @@ public:
      */
     void stop();
 
+    /**
+     * @brief 获取当前队列深度
+     */
+    int getQueueDepth() const;
+
+    /**
+     * @brief 获取已采集批次计数
+     */
+    int getGrabbedCount() const { return m_grabbedCount; }
+
+    /**
+     * @brief 清空队列
+     */
+    void clearQueue();
+
 signals:
     /**
      * @brief 错误发生信号
@@ -77,6 +93,7 @@ private:
     QQueue<ReconImageBatch> m_imageQueue;
     QMutex m_queueMutex;
     QWaitCondition m_queueCondition;
+    int m_grabbedCount;  // 已采集批次计数
 };
 
 /**

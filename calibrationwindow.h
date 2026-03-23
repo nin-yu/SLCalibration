@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QSettings>
+#include <QTimer>
 
 #include "deviceconfig.h"
 #include "ProjectorController.h"
@@ -66,6 +67,9 @@ private slots:
     void onProjectorTabChanged(int index);
     void onCalibrationTabChanged(int index);
 
+    // 定时刷新重建界面按钮状态
+    void onRefreshReconstructButtonStates();
+
 private:
     // 初始化投影仪控制组件
     bool initializeProjectorControlWidgets();
@@ -118,6 +122,9 @@ private:
 
     // 标签同步标志，防止循环触发
     bool m_isSyncingTabs = false;
+
+    // 定时器用于刷新重建按钮状态
+    QTimer* m_reconstructButtonRefreshTimer = nullptr;
 };
 
 #endif // CALIBRATIONWINDOW_H

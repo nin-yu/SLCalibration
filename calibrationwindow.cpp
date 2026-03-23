@@ -10,6 +10,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
+#include <QTimer>
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -56,6 +57,13 @@ CalibrationWindow::CalibrationWindow(const DeviceConfig& config, QWidget *parent
         m_reconstructWidgetInitialized = true;
     }
 
+    // 创建定时器用于刷新重建按钮状态（每500ms检查一次相机状态）
+    m_reconstructButtonRefreshTimer = new QTimer(this);
+    m_reconstructButtonRefreshTimer->setInterval(500);
+    connect(m_reconstructButtonRefreshTimer, &QTimer::timeout,
+            this, &CalibrationWindow::onRefreshReconstructButtonStates);
+    m_reconstructButtonRefreshTimer->start();
+
     // 记录配置信息到日志
     QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss");
     QString logMessage = QString("[%1] 标定窗口已启动\n左侧相机SN: %2\n右侧相机SN: %3\n左侧投影仪Tag: %4\n右侧投影仪Tag: %5")
@@ -71,6 +79,11 @@ CalibrationWindow::CalibrationWindow(const DeviceConfig& config, QWidget *parent
 
 CalibrationWindow::~CalibrationWindow()
 {
+    // 停止定时器
+    if (m_reconstructButtonRefreshTimer) {
+        m_reconstructButtonRefreshTimer->stop();
+    }
+
     // 清理投影仪控制组件
     if (m_leftProjectorWidget) {
         delete m_leftProjectorWidget;
@@ -336,6 +349,16 @@ bool CalibrationWindow::initializeCameraControlWidgets()
     m_leftCameraWidget = leftCameraWidget;
     m_rightCameraWidget = rightCameraWidget;
 
+    // 如果重建widget已存在，更新相机widget引用
+    if (m_leftReconstructWidget) {
+        m_leftReconstructWidget->setCameraControlWidget(m_leftCameraWidget);
+        m_leftReconstructWidget->refreshButtonStates();
+    }
+    if (m_rightReconstructWidget) {
+        m_rightReconstructWidget->setCameraControlWidget(m_rightCameraWidget);
+        m_rightReconstructWidget->refreshButtonStates();
+    }
+
     // 连接状态更新信号
     connect(m_leftCameraWidget, &SingleCameraControlWidget::statusUpdated,
             this, &CalibrationWindow::onCameraStatusUpdated);
@@ -461,6 +484,30 @@ void CalibrationWindow::on_pushButton_CameraDetect_clicked()
             m_cameraControlWidgetInitialized = true;
             logMessage = QString("[%1] 相机控制界面初始化成功").arg(timestamp);
             ui->textEdit_CalibrationResults->append(logMessage);
+            
+            // 相机控制界面初始化成功后，重新初始化点云重建界面
+            // 因为重建界面需要相机控制widget的引用
+            if (!m_reconstructWidgetInitialized || !m_leftReconstructWidget || !m_rightReconstructWidget) {
+                // 清理旧的重建widget
+                if (m_leftReconstructWidget) {
+                    delete m_leftReconstructWidget;
+                    m_leftReconstructWidget = nullptr;
+                }
+                if (m_rightReconstructWidget) {
+                    delete m_rightReconstructWidget;
+                    m_rightReconstructWidget = nullptr;
+                }
+                
+                // 重新初始化重建widget，此时相机控制widget已经可用
+                if (initializeReconstructWidgets()) {
+                    m_reconstructWidgetInitialized = true;
+                    logMessage = QString("[%1] 点云重建界面重新初始化成功（相机控制已就绪）").arg(timestamp);
+                    ui->textEdit_CalibrationResults->append(logMessage);
+                } else {
+                    logMessage = QString("[%1] 点云重建界面重新初始化失败").arg(timestamp);
+                    ui->textEdit_CalibrationResults->append(logMessage);
+                }
+            }
         } else {
             logMessage = QString("[%1] 相机控制界面初始化失败").arg(timestamp);
             ui->textEdit_CalibrationResults->append(logMessage);
@@ -791,4 +838,15 @@ void CalibrationWindow::onCalibrationTabChanged(int index)
     }
 
     m_isSyncingTabs = false;
+}
+
+void CalibrationWindow::onRefreshReconstructButtonStates()
+{
+    // 定期刷新重建界面的按钮状态，确保在线重建按钮与相机状态同步
+    if (m_leftReconstructWidget) {
+        m_leftReconstructWidget->refreshButtonStates();
+    }
+    if (m_rightReconstructWidget) {
+        m_rightReconstructWidget->refreshButtonStates();
+    }
 }

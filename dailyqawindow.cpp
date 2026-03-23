@@ -25,27 +25,16 @@
 #include <vector>
 
 namespace {
-constexpr float kQACameraExposureUs = 45000.0f;
-constexpr float kQACameraGain = 0.0f;
-constexpr int kQAProjectorExposureUs = 500000;
-constexpr int kQAProjectorPattern = 6;
-constexpr int kQAProjectorTrigger = 0;  // 0 = 内触发
-constexpr int kQACameraTriggerMode = 1;  // 1 = 外触发
-constexpr const char* kQACameraTriggerSource = "Line0";
+// 以下常量从 ConfigManager 读取，已移除硬编码：
+// kQACameraExposureUs, kQACameraGain, kQAProjectorExposureUs, kQAProjectorPattern,
+// kQAProjectorTrigger, kQACameraTriggerMode, kQACameraTriggerSource, kImageTimeoutMs,
+// kImageBufferSize, kExpectedPoseImageCount, kDefaultProjFrequency, kDefaultProjWidth,
+// kDefaultProjHeight, kBoardCols, kBoardRows, kBoardSquareSizeMm, kGrayCodeCount,
+// kPhaseShiftCount, kMinValidPointCount
+
+// 以下常量没有对应的 ConfigManager API，保留硬编码
 constexpr unsigned int kQACameraTriggerActivation = 1;  // 1 = 下降沿
 constexpr const char* kQACameraTriggerSourceReadback = "0";  // Line0 enum value
-constexpr int kImageTimeoutMs = 3000;
-constexpr unsigned int kImageBufferSize = 5 * 1024 * 1024;
-constexpr int kExpectedPoseImageCount = 20;
-constexpr int kDefaultProjFrequency = 16;
-constexpr int kDefaultProjWidth = 912;
-constexpr int kDefaultProjHeight = 1140;
-constexpr int kBoardCols = 20;
-constexpr int kBoardRows = 20;
-constexpr float kBoardSquareSizeMm = 10.0f;
-constexpr int kGrayCodeCount = 5;
-constexpr int kPhaseShiftCount = 4;
-constexpr int kMinValidPointCount = 320;
 constexpr const char* kFixedPoseTransformName = "center+inv";
 
 struct ErrorStats {
@@ -235,11 +224,12 @@ DailyQAWindow::DailyQAWindow(const DeviceConfig& config, QWidget *parent)
     updateDeviceInfo();
 
     logMessage("每日 QA 检测窗口已启动");
+    auto& cfg = ConfigManager::instance();
     logMessage(QString("日检固定参数: 相机曝光=%1us, 相机增益=%2, 投影曝光=%3us, 图案=%4, 投影触发=内触发, 相机触发=外触发(Line0,下降沿)")
-               .arg(kQACameraExposureUs, 0, 'f', 0)
-               .arg(kQACameraGain, 0, 'f', 0)
-               .arg(kQAProjectorExposureUs)
-               .arg(kQAProjectorPattern));
+               .arg(cfg.qaCameraExposureUs(), 0, 'f', 0)
+               .arg(cfg.qaCameraGain(), 0, 'f', 0)
+               .arg(cfg.qaProjectorExposureUs())
+               .arg(cfg.qaProjectorPattern()));
 }
 
 DailyQAWindow::~DailyQAWindow()
@@ -378,7 +368,8 @@ bool DailyQAWindow::captureDarkImage(const QString& projectorTag,
     const QString darkPath = QString("%1/Pose_%2_Img_00_Dark.bmp")
                                  .arg(projectorPath)
                                  .arg(formatPoseNumber(poseNumber));
-    const bool ok = saveFrame(cameraHandle, imageBuffer, imageBufferSize, darkPath, kImageTimeoutMs);
+    const bool ok = saveFrame(cameraHandle, imageBuffer, imageBufferSize, darkPath,
+                              ConfigManager::instance().qaImageTimeoutMs());
     m_cameraController->StopImageCapture(cameraHandle);
     if (ok) {
         logMessage(QString("[Pose %1] 暗场图已保存: %2")
@@ -396,11 +387,15 @@ bool DailyQAWindow::capturePatternSequence(const QString& projectorTag,
                                            const QString& cameraPath,
                                            int poseNumber)
 {
-    if (!m_cameraController->SetTriggerMode(cameraHandle, kQACameraTriggerMode)) {
+    auto& cfg = ConfigManager::instance();
+    const int qaCameraTriggerMode = cfg.qaCameraTriggerMode();
+    const QString qaCameraTriggerSource = cfg.qaCameraTriggerSource();
+
+    if (!m_cameraController->SetTriggerMode(cameraHandle, qaCameraTriggerMode)) {
         logMessage("设置相机外触发模式失败");
         return false;
     }
-    if (!m_cameraController->SetTriggerSource(cameraHandle, kQACameraTriggerSource)) {
+    if (!m_cameraController->SetTriggerSource(cameraHandle, qaCameraTriggerSource.toUtf8().constData())) {
         logMessage("设置相机触发源Line0失败");
         return false;
     }
@@ -413,10 +408,10 @@ bool DailyQAWindow::capturePatternSequence(const QString& projectorTag,
     unsigned int triggerActivation = 999;
     char triggerSource[64] = {0};
     if (!m_cameraController->GetTriggerMode(cameraHandle, triggerMode) ||
-        triggerMode != kQACameraTriggerMode) {
+        triggerMode != qaCameraTriggerMode) {
         logMessage(QString("相机触发模式校验失败: current=%1, expected=%2")
                        .arg(triggerMode)
-                       .arg(kQACameraTriggerMode));
+                       .arg(qaCameraTriggerMode));
         return false;
     }
     if (!m_cameraController->GetTriggerSource(cameraHandle, triggerSource, sizeof(triggerSource)) ||
@@ -442,14 +437,15 @@ bool DailyQAWindow::capturePatternSequence(const QString& projectorTag,
     }
 
     if (!m_projectorController->sendAndPlayProjector(projectorTag.toStdString(),
-                                                     kQAProjectorTrigger,
-                                                     kQAProjectorPattern,
-                                                     kQAProjectorExposureUs)) {
+                                                     cfg.qaProjectorTriggerMode(),
+                                                     cfg.qaProjectorPattern(),
+                                                     cfg.qaProjectorExposureUs())) {
         logMessage("发送投影序列失败");
         m_cameraController->StopImageCapture(cameraHandle);
         return false;
     }
 
+    const int imageTimeoutMs = cfg.qaImageTimeoutMs();
     for (int i = 0; i < 19; ++i) {
         const QString patternName = patternNameForIndex(i);
         const QString imagePath = QString("%1/Pose_%2_Img_%3_%4.bmp")
@@ -458,7 +454,7 @@ bool DailyQAWindow::capturePatternSequence(const QString& projectorTag,
                                       .arg(i + 1, 2, 10, QLatin1Char('0'))
                                       .arg(patternName);
 
-        if (!saveFrame(cameraHandle, imageBuffer, imageBufferSize, imagePath, kImageTimeoutMs)) {
+        if (!saveFrame(cameraHandle, imageBuffer, imageBufferSize, imagePath, imageTimeoutMs)) {
             m_projectorController->pauseProjector(projectorTag.toStdString());
             m_cameraController->StopImageCapture(cameraHandle);
             return false;
@@ -509,12 +505,16 @@ DailyQAWindow::SideRunResult DailyQAWindow::runSideDailyQA(const SideConfig& sid
         return SideRunResult::Failed;
     }
 
-    if (!m_cameraController->SetExposureTime(cameraHandle, kQACameraExposureUs) ||
-        !m_cameraController->SetGain(cameraHandle, kQACameraGain)) {
+    auto& cfg = ConfigManager::instance();
+    const float qaCameraExposureUs = cfg.qaCameraExposureUs();
+    const float qaCameraGain = cfg.qaCameraGain();
+
+    if (!m_cameraController->SetExposureTime(cameraHandle, qaCameraExposureUs) ||
+        !m_cameraController->SetGain(cameraHandle, qaCameraGain)) {
         logMessage(QString("%1 相机参数设置失败(曝光=%2us, 增益=%3)")
                        .arg(side.displayName)
-                       .arg(kQACameraExposureUs, 0, 'f', 0)
-                       .arg(kQACameraGain, 0, 'f', 0));
+                       .arg(qaCameraExposureUs, 0, 'f', 0)
+                       .arg(qaCameraGain, 0, 'f', 0));
         m_projectorController->pauseProjector(side.projectorTag.toStdString());
         m_cameraController->CloseCamera(cameraHandle);
         return SideRunResult::Failed;
@@ -523,14 +523,14 @@ DailyQAWindow::SideRunResult DailyQAWindow::runSideDailyQA(const SideConfig& sid
     const QString projectorPath = getQATypedPath(side.folderName, "Projector");
     const QString cameraPath = getQATypedPath(side.folderName, "Camera");
     const int poseNumber = getNextPoseNumber(projectorPath);
-    std::vector<unsigned char> imageBuffer(kImageBufferSize);
+    std::vector<unsigned char> imageBuffer(cfg.qaImageBufferSize());
 
     logMessage(QString("%1 参数已固定: CamExp=%2us CamGain=%3 ProjExp=%4us Pattern=%5 ProjTrigger=内触发 CamTrigger=外触发(Line0,下降沿)")
                    .arg(side.displayName)
-                   .arg(kQACameraExposureUs, 0, 'f', 0)
-                   .arg(kQACameraGain, 0, 'f', 0)
-                   .arg(kQAProjectorExposureUs)
-                   .arg(kQAProjectorPattern));
+                   .arg(qaCameraExposureUs, 0, 'f', 0)
+                   .arg(qaCameraGain, 0, 'f', 0)
+                   .arg(cfg.qaProjectorExposureUs())
+                   .arg(cfg.qaProjectorPattern()));
     logMessage(QString("%1 开始采集 Pose %2")
                    .arg(side.displayName)
                    .arg(formatPoseNumber(poseNumber)));
@@ -576,6 +576,8 @@ bool DailyQAWindow::collectSinglePoseImages(const QString& projectorPath,
     orderedPoseFiles.clear();
     reason.clear();
 
+    const int expectedPoseImageCount = ConfigManager::instance().qaExpectedPoseImageCount();
+
     QDir dir(projectorPath);
     if (!dir.exists()) {
         reason = QString("目录不存在: %1").arg(projectorPath);
@@ -605,7 +607,7 @@ bool DailyQAWindow::collectSinglePoseImages(const QString& projectorPath,
 
         const QString poseId = match.captured(1);
         const int imageIndex = match.captured(2).toInt();
-        if (imageIndex < 0 || imageIndex >= kExpectedPoseImageCount) {
+        if (imageIndex < 0 || imageIndex >= expectedPoseImageCount) {
             continue;
         }
 
@@ -646,7 +648,7 @@ bool DailyQAWindow::collectSinglePoseImages(const QString& projectorPath,
     const QMap<int, QString> imageMap = poseImageMap.value(latestPoseId);
 
     QStringList missingIndices;
-    for (int i = 0; i < kExpectedPoseImageCount; ++i) {
+    for (int i = 0; i < expectedPoseImageCount; ++i) {
         if (!imageMap.contains(i)) {
             missingIndices << QString("%1").arg(i, 2, 10, QLatin1Char('0'));
         }
@@ -658,7 +660,7 @@ bool DailyQAWindow::collectSinglePoseImages(const QString& projectorPath,
         return false;
     }
 
-    for (int i = 0; i < kExpectedPoseImageCount; ++i) {
+    for (int i = 0; i < expectedPoseImageCount; ++i) {
         orderedPoseFiles << imageMap.value(i);
     }
     return true;
@@ -730,8 +732,9 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
     }
 
     cv::Size projSize = calibData.projRes;
+    auto& cfg = ConfigManager::instance();
     if (projSize.width <= 0 || projSize.height <= 0) {
-        projSize = cv::Size(kDefaultProjWidth, kDefaultProjHeight);
+        projSize = cv::Size(cfg.qaProjectorWidth(), cfg.qaProjectorHeight());
         logMessage(QString("%1: 标定文件缺少投影分辨率，使用默认值 %2x%3")
                        .arg(side.displayName)
                        .arg(projSize.width)
@@ -740,11 +743,19 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
 
     int projFrequency = calibData.projFrequency;
     if (projFrequency <= 0) {
-        projFrequency = kDefaultProjFrequency;
+        projFrequency = cfg.qaProjectorFrequency();
         logMessage(QString("%1: 标定文件缺少投影频率，使用默认值 %2")
                        .arg(side.displayName)
                        .arg(projFrequency));
     }
+
+    // 从配置管理器获取 QA 参数
+    const int boardCols = cfg.qaPatternCols();
+    const int boardRows = cfg.qaPatternRows();
+    const double boardSquareSizeMm = cfg.qaSquareSizeMm();
+    const int grayCodeBits = cfg.qaGrayCodeBits();
+    const int phaseShiftSteps = cfg.qaPhaseShiftSteps();
+    const int minValidPointCount = cfg.qaMinValidPointCount();
 
     try {
         std::vector<std::string> poseImages;
@@ -758,12 +769,12 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         std::vector<cv::Point2f> projectorPoints;
 
         if (!calibrator.processPoseGroup(poseImages,
-                                         cv::Size(kBoardCols, kBoardRows),
-                                         kBoardSquareSizeMm,
+                                         cv::Size(boardCols, boardRows),
+                                         static_cast<float>(boardSquareSizeMm),
                                          projSize,
                                          projFrequency,
-                                         kGrayCodeCount,
-                                         kPhaseShiftCount,
+                                         grayCodeBits,
+                                         phaseShiftSteps,
                                          worldPoints,
                                          cameraPoints,
                                          projectorPoints)) {
@@ -831,11 +842,11 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         }
 
         const size_t matchedCount = std::min({worldPoints.size(), cameraPoints.size(), projectorPoints.size()});
-        if (matchedCount < static_cast<size_t>(kMinValidPointCount)) {
+        if (matchedCount < static_cast<size_t>(minValidPointCount)) {
             summaryMessage = QString("%1: 计算失败 - 有效对应点数量不足(%2 < %3)")
                                  .arg(side.displayName)
                                  .arg(static_cast<int>(matchedCount))
-                                 .arg(kMinValidPointCount);
+                                 .arg(minValidPointCount);
             logMessage(summaryMessage);
             return SideComputeResult::Failed;
         }
@@ -844,7 +855,7 @@ DailyQAWindow::SideComputeResult DailyQAWindow::computeSideProjectionError(const
         projectorPoints.resize(matchedCount);
 
         std::vector<cv::Point3f> worldPointsCentered = worldPoints;
-        centerBoardPointsInPlace(worldPointsCentered, kBoardCols, kBoardRows, kBoardSquareSizeMm);
+        centerBoardPointsInPlace(worldPointsCentered, boardCols, boardRows, static_cast<float>(boardSquareSizeMm));
 
         cv::Mat camMatrix;
         cv::Mat camDist;

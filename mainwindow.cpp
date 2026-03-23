@@ -8,9 +8,6 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
-#include <QTextStream>
-#include <QSettings>
-#include <QDateTime>
 #include <QDebug>
 
 
@@ -52,47 +49,17 @@ MainWindow::~MainWindow()
 
 bool MainWindow::createDefaultConfigFile(const QString& filePath)
 {
+    // 简化实现：仅检查文件是否存在
+    // ConfigManager::loadFromFile() 已经会自动补全缺失的配置项
+    if (QFile::exists(filePath)) {
+        return true;
+    }
+    
+    // 如果文件不存在，创建一个空文件让 ConfigManager 填充默认值
     QFile file(filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
         return false;
     }
-    
-    QTextStream out(&file);
-    out << "[Camera]\n";
-    out << "# 左侧相机序列号\n";
-    out << "LeftSerialNumber=\n";
-    out << "# 右侧相机序列号\n";
-    out << "RightSerialNumber=\n\n";
-    out << "[Projector]\n";
-    out << "# 左侧投影仪tagname\n";
-    out << "LeftTagName=LCR2@dibh_left\n";
-    out << "# 右侧投影仪tagname\n";
-    out << "RightTagName=LCR2@dibh_right\n\n";
-
-    out << "[QA]\n";
-    out << "# 日检数据目录（相对路径将基于程序目录）\n";
-    out << "DailyQARoot=QAData\n";
-    out << "# 日检模式：pose_batch（手动拷图）\n";
-    out << "DailyMode=pose_batch\n";
-    out << "# 日检棋盘格参数\n";
-    out << "PatternRows=20\n";
-    out << "PatternCols=20\n";
-    out << "SquareSizeMm=10.0\n";
-    out << "# 日检分项阈值\n";
-    out << "CameraReprojFailThresholdPx=0.8\n";
-    out << "DailyRmsProjFailThreshold=0.8\n";
-    out << "MinValidPoseCount=1\n";
-    out << "# 结构光参数（应与采集模板一致）\n";
-    out << "ProjectorWidth=912\n";
-    out << "ProjectorHeight=1140\n";
-    out << "ProjectorFrequency=16\n";
-    out << "GrayCodeBits=5\n";
-    out << "PhaseShiftSteps=4\n";
-    out << "# 月检失败阈值\n";
-    out << "MonthlyRmsProjFailThreshold=0.8\n";
-    out << "MonthlyRmsStereoFailThreshold=0.8\n";
-    out << "MonthlyEpiMeanFailThresholdPx=1.0\n";
-    
     file.close();
     return true;
 }
@@ -101,32 +68,26 @@ bool MainWindow::loadConfiguration()
 {
     QString configFile = QCoreApplication::applicationDirPath() + "/config.ini";
     
-    // 检查配置文件是否存在，如果不存在则创建默认文件
+    // 确保配置文件存在（如果不存在则创建空文件）
     if (!QFile::exists(configFile)) {
         if (!createDefaultConfigFile(configFile)) {
-            qDebug() << "无法创建默认配置文件:" << configFile;
+            qDebug() << "无法创建配置文件:" << configFile;
             return false;
         }
     }
     
-    // 加载配置文件
-    QSettings settings(configFile, QSettings::IniFormat);
-    
-    // 读取相机序列号
-    m_deviceConfig.leftCameraSN = settings.value("Camera/LeftSerialNumber", "").toString();
-    m_deviceConfig.rightCameraSN = settings.value("Camera/RightSerialNumber", "").toString();
-    
-    // 读取投影仪tagname
-    m_deviceConfig.leftProjectorTag = settings.value("Projector/LeftTagName", "LCR2@dibh_left").toString();
-    m_deviceConfig.rightProjectorTag = settings.value("Projector/RightTagName", "LCR2@dibh_right").toString();
-    
-    // 使用默认值填充空字段
-    if (m_deviceConfig.leftProjectorTag.isEmpty()) {
-        m_deviceConfig.leftProjectorTag = "LCR2@dibh_left";
+    // 使用 ConfigManager 统一加载所有配置
+    if (!ConfigManager::instance().loadFromFile(configFile)) {
+        qDebug() << "ConfigManager 加载配置文件失败:" << configFile;
+        return false;
     }
-    if (m_deviceConfig.rightProjectorTag.isEmpty()) {
-        m_deviceConfig.rightProjectorTag = "LCR2@dibh_right";
-    }
+    
+    // 从 ConfigManager 获取设备标识填充到 m_deviceConfig（保持向后兼容）
+    auto& cfg = ConfigManager::instance();
+    m_deviceConfig.leftCameraSN = cfg.leftCameraSN();
+    m_deviceConfig.rightCameraSN = cfg.rightCameraSN();
+    m_deviceConfig.leftProjectorTag = cfg.leftProjectorTag();
+    m_deviceConfig.rightProjectorTag = cfg.rightProjectorTag();
     
     qDebug() << "[配置加载] 左相机SN:" << m_deviceConfig.leftCameraSN
              << "右相机SN:" << m_deviceConfig.rightCameraSN

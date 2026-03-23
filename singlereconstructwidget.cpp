@@ -7,12 +7,15 @@
 #include "reconengine.h"
 #include "reconworker.h"
 #include "pointcloudwidget.h"
+#include "configmanager.h"
 
 #include <QDebug>
 #include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QCoreApplication>
+#include <QTimer>
+#include <QElapsedTimer>
 
 SingleReconstructWidget::SingleReconstructWidget(ProjectorController* projCtrl,
                                                  CCameraController* camCtrl,
@@ -34,25 +37,47 @@ SingleReconstructWidget::SingleReconstructWidget(ProjectorController* projCtrl,
     , m_isReconstructing(false)
     , m_isInitialized(false)
     , m_wasGrabbingBeforeRecon(false)
-    , m_nGrayCode(5)
-    , m_nPhaseShift(4)
-    , m_framesPerBatch(9)
+    , m_nGrayCode(ConfigManager::instance().grayCodeBits())           // 从 ConfigManager 读取格雷码位数
+    , m_nPhaseShift(ConfigManager::instance().phaseShiftSteps())      // 从 ConfigManager 读取相移步数
+    , m_framesPerBatch(ConfigManager::instance().grayCodeBits() + ConfigManager::instance().phaseShiftSteps())  // 每批帧数 = 格雷码 + 相移
     , m_projectorExposure(30)
-    , m_projectorPattern(8)
+    , m_projectorPattern(8)   // TODO: ConfigManager 尚无标定模块的 projectorPattern 接口，暂时保留硬编码
     , m_currentFps(0.0)
     , m_currentPointCount(0)
+    , m_consecutiveErrorCount(0)
+    , m_statusMonitorTimer(nullptr)
+    , m_totalProcessedFrames(0)
 {
     ui->setupUi(this);
     
-    if (projCtrl && camCtrl && camWidget) {
+    // 基础初始化：只要有重建引擎需要的最低配置即可
+    // 离线重建只需要标定文件，在线重建才需要相机和投影仪
+    if (projCtrl && camCtrl) {
         m_isInitialized = true;
     }
     
-    updateButtonStates();
+    // 初始化状态监控定时器
+    m_statusMonitorTimer = new QTimer(this);
+    m_statusMonitorTimer->setInterval(1000);  // 每秒检查一次状态
+    connect(m_statusMonitorTimer, &QTimer::timeout,
+            this, &SingleReconstructWidget::onStatusMonitorTimeout);
+    
+    // 获取UI状态标签指针
+    m_statusLabel = ui->label_status;
+    m_fpsLabel = ui->label_fps;
+    m_pointCountLabel = ui->label_points;
+    
+    // 更新按钮状态（离线重建始终可用，在线重建需要相机就绪）
+    updateReconstructionButtonStates();
 }
 
 SingleReconstructWidget::~SingleReconstructWidget()
 {
+    // Stop status monitor timer
+    if (m_statusMonitorTimer) {
+        m_statusMonitorTimer->stop();
+    }
+    
     // Stop reconstruction if running
     if (m_isReconstructing) {
         // Stop projector first
@@ -95,11 +120,13 @@ void SingleReconstructWidget::initialize(ProjectorController* projCtrl,
     m_projectorWidget = projWidget;
     m_projectorTag = projectorTag;
     
-    if (projCtrl && camCtrl && camWidget) {
+    // 基础初始化条件：投影仪控制器和相机控制器
+    // 相机widget可以后续设置，用于在线重建
+    if (projCtrl && camCtrl) {
         m_isInitialized = true;
     }
     
-    updateButtonStates();
+    updateReconstructionButtonStates();
 }
 
 void SingleReconstructWidget::setCameraSerialNumber(const QString& serialNumber)
@@ -372,6 +399,43 @@ void SingleReconstructWidget::updateButtonStates()
     ui->pushButton_offlineReconstruction->setEnabled(!m_isReconstructing);
 }
 
+bool SingleReconstructWidget::isCameraReady() const
+{
+    // 检查相机是否已打开并准备好进行在线重建
+    if (!m_cameraWidget) {
+        return false;
+    }
+    
+    void* handle = m_cameraWidget->getCameraHandle();
+    return (handle != nullptr);
+}
+
+void SingleReconstructWidget::updateReconstructionButtonStates()
+{
+    // 离线重建按钮：只要widget初始化完成且不在重建中即可使用
+    ui->pushButton_offlineReconstruction->setEnabled(m_isInitialized && !m_isReconstructing);
+    
+    // 在线重建按钮逻辑：
+    // - 如果正在重建中，按钮应该可用（用于停止重建）
+    // - 如果未在重建中，需要相机已打开才能启用
+    bool canClickOnlineButton;
+    if (m_isReconstructing) {
+        // 重建中：按钮始终可用（用于停止）
+        canClickOnlineButton = true;
+    } else {
+        // 未重建：需要相机就绪才能开始
+        canClickOnlineButton = m_isInitialized && isCameraReady();
+    }
+    ui->pushButton_continueReconstruction->setEnabled(canClickOnlineButton);
+    
+    // 如果相机未就绪且不在重建中，显示提示文本
+    if (!isCameraReady() && m_isInitialized && !m_isReconstructing) {
+        ui->pushButton_continueReconstruction->setToolTip("请先打开相机设备");
+    } else {
+        ui->pushButton_continueReconstruction->setToolTip("");
+    }
+}
+
 void SingleReconstructWidget::logMessage(const QString& message)
 {
     qDebug() << "[Recon]" << message;
@@ -401,17 +465,16 @@ void SingleReconstructWidget::on_pushButton_continueReconstruction_toggled(bool 
             return;
         }
         
-        // Get camera handle
-        if (m_cameraWidget) {
-            m_cameraHandle = m_cameraWidget->getCameraHandle();
-        }
-        
-        if (!m_cameraHandle) {
+        // 检查相机是否已就绪（在线重建需要相机已打开）
+        if (!isCameraReady()) {
             QMessageBox::warning(this, "Error", 
                 "Camera not opened. Please open camera first.");
             ui->pushButton_continueReconstruction->setChecked(false);
             return;
         }
+        
+        // Get camera handle
+        m_cameraHandle = m_cameraWidget->getCameraHandle();
         
         // 确定设备类型
         bool isLeftDevice = m_deviceTag.contains("left", Qt::CaseInsensitive) ||
@@ -471,9 +534,23 @@ void SingleReconstructWidget::on_pushButton_continueReconstruction_toggled(bool 
                 this, &SingleReconstructWidget::onWorkerError,
                 Qt::QueuedConnection);
         
+        connect(m_grabWorker, &ReconGrabWorker::batchEnqueued,
+                this, &SingleReconstructWidget::onBatchEnqueued,
+                Qt::QueuedConnection);
+        
+        // Reset error counter and statistics
+        m_consecutiveErrorCount = 0;
+        m_totalProcessedFrames = 0;
+        m_reconTimer.start();
+        
         // Start workers
         m_grabWorker->start();
         m_processWorker->start();
+        
+        // Start status monitor
+        m_statusMonitorTimer->start();
+        
+        logMessage("Worker threads started, monitoring active");
         
         // Step 4: Start projector
         if (!startProjector()) {
@@ -486,7 +563,7 @@ void SingleReconstructWidget::on_pushButton_continueReconstruction_toggled(bool 
         }
         
         m_isReconstructing = true;
-        updateButtonStates();
+        updateReconstructionButtonStates();
         emit reconstructionStateChanged(true);
         
         // 更新按钮文本
@@ -501,26 +578,42 @@ void SingleReconstructWidget::on_pushButton_continueReconstruction_toggled(bool 
         
         logMessage("Stopping reconstruction...");
         
-        // Step 1: Stop projector first (no more triggers)
+        // Step 1: Stop status monitor
+        if (m_statusMonitorTimer) {
+            m_statusMonitorTimer->stop();
+        }
+        
+        // Step 2: Stop projector first (no more triggers)
         stopProjector();
         
-        // Step 2: Stop camera capture (unblocks GetImage)
+        // Step 3: Stop camera capture (unblocks GetImage)
         if (m_cameraController && m_cameraHandle) {
             m_cameraController->StopImageCapture(m_cameraHandle);
         }
         
-        // Step 3: Clean up workers (stop and delete)
+        // Step 4: Clean up workers (stop and delete)
         cleanupWorkers();
         
-        // Step 4: Restore camera to continuous mode
+        // Step 5: Restore camera to continuous mode
         switchCameraToSoftwareTrigger();
         
         m_isReconstructing = false;
-        updateButtonStates();
+        updateReconstructionButtonStates();
         emit reconstructionStateChanged(false);
         
         // 更新按钮文本
         ui->pushButton_continueReconstruction->setText("连续重建");
+        
+        // 重置状态显示
+        if (m_statusLabel) {
+            m_statusLabel->setText("状态: 就绪");
+        }
+        if (m_fpsLabel) {
+            m_fpsLabel->setText("FPS: 0.0");
+        }
+        if (m_pointCountLabel) {
+            m_pointCountLabel->setText("点数: 0");
+        }
         
         logMessage("Reconstruction stopped");
     }
@@ -678,14 +771,79 @@ void SingleReconstructWidget::onPointCloudReady(PointCloudT::Ptr cloud)
 void SingleReconstructWidget::onWorkerError(const QString& message)
 {
     logMessage(QString("Error: %1").arg(message));
+    
+    // Increment consecutive error counter
+    m_consecutiveErrorCount++;
+    
+    // Update status label
+    if (m_statusLabel) {
+        m_statusLabel->setText(QString("状态: 错误 (%1)").arg(m_consecutiveErrorCount));
+    }
+    
+    // If too many consecutive errors, stop reconstruction automatically
+    if (m_consecutiveErrorCount >= MAX_CONSECUTIVE_ERRORS) {
+        logMessage(QString("Too many consecutive errors (%1), stopping reconstruction automatically")
+                   .arg(m_consecutiveErrorCount));
+        
+        // Trigger stop by unchecking the button
+        if (ui->pushButton_continueReconstruction->isChecked()) {
+            ui->pushButton_continueReconstruction->setChecked(false);
+        }
+    }
 }
 
 void SingleReconstructWidget::onProcessingStats(double fps, int pointCount)
 {
     m_currentFps = fps;
     m_currentPointCount = pointCount;
+    m_totalProcessedFrames++;
     
-    // Could update a status label here if needed
-    // logMessage(QString("FPS: %1, Points: %2").arg(fps, 0, 'f', 1).arg(pointCount));
+    // Reset error counter on successful processing
+    m_consecutiveErrorCount = 0;
+    
+    // Update UI labels
+    if (m_fpsLabel) {
+        m_fpsLabel->setText(QString("FPS: %1").arg(fps, 0, 'f', 1));
+    }
+    if (m_pointCountLabel) {
+        m_pointCountLabel->setText(QString("点数: %1").arg(pointCount));
+    }
+    if (m_statusLabel) {
+        m_statusLabel->setText("状态: 运行中");
+    }
+}
+
+void SingleReconstructWidget::onBatchEnqueued(int queueSize)
+{
+    // Monitor queue depth, log warning if getting too deep
+    if (queueSize >= 2) {
+        qDebug() << "[SingleReconstructWidget] Queue depth:" << queueSize;
+    }
+}
+
+void SingleReconstructWidget::onStatusMonitorTimeout()
+{
+    if (!m_isReconstructing) {
+        return;
+    }
+    
+    // Check if workers are still running
+    if (m_grabWorker && !m_grabWorker->isRunning()) {
+        logMessage("Warning: Grab worker stopped unexpectedly");
+        onWorkerError("Grab worker stopped unexpectedly");
+    }
+    
+    if (m_processWorker && !m_processWorker->isRunning()) {
+        logMessage("Warning: Process worker stopped unexpectedly");
+        onWorkerError("Process worker stopped unexpectedly");
+    }
+    
+    // Log statistics periodically
+    qint64 elapsedSec = m_reconTimer.elapsed() / 1000;
+    if (elapsedSec > 0 && m_totalProcessedFrames > 0) {
+        double avgFps = m_totalProcessedFrames / static_cast<double>(elapsedSec);
+        qDebug() << QString("[Recon Stats] Elapsed: %1s, Total frames: %2, Avg FPS: %3")
+                    .arg(elapsedSec).arg(m_totalProcessedFrames).arg(avgFps, 0, 'f', 2);
+    }
 }
 

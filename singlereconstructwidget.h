@@ -3,10 +3,14 @@
 
 #include <QWidget>
 #include <QVector>
+#include <QTimer>
+#include <QElapsedTimer>
+#include <QLabel>
 #include <atomic>
 #include <opencv2/opencv.hpp>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
+#include "configmanager.h"
 
 // Forward declarations
 class ProjectorController;
@@ -83,6 +87,17 @@ public:
     void setDeviceTag(const QString& tag) { m_deviceTag = tag; }
 
     /**
+     * @brief Set camera control widget (for online reconstruction)
+     * @param camWidget Camera control widget pointer
+     */
+    void setCameraControlWidget(SingleCameraControlWidget* camWidget) { m_cameraWidget = camWidget; }
+
+    /**
+     * @brief Refresh button states - call this when camera open/close state changes
+     */
+    void refreshButtonStates() { updateReconstructionButtonStates(); }
+
+    /**
      * @brief Get device tag
      */
     QString getDeviceTag() const { return m_deviceTag; }
@@ -96,6 +111,16 @@ public:
      * @brief Set projector exposure time (ms)
      */
     void setProjectorExposure(int exposureMs) { m_projectorExposure = exposureMs; }
+
+    /**
+     * @brief Check if camera is ready for online reconstruction
+     */
+    bool isCameraReady() const;
+
+    /**
+     * @brief Update UI button states based on current status
+     */
+    void updateReconstructionButtonStates();
 
 signals:
     /**
@@ -134,6 +159,16 @@ private slots:
      * @brief Handle processing stats
      */
     void onProcessingStats(double fps, int pointCount);
+
+    /**
+     * @brief Handle batch enqueued signal
+     */
+    void onBatchEnqueued(int queueSize);
+
+    /**
+     * @brief Status monitor timeout handler
+     */
+    void onStatusMonitorTimeout();
 
 private:
     /**
@@ -255,6 +290,18 @@ private:
     // Statistics
     double m_currentFps;
     int m_currentPointCount;
+
+    // Error handling and monitoring
+    int m_consecutiveErrorCount;
+    static const int MAX_CONSECUTIVE_ERRORS = 5;
+    QTimer* m_statusMonitorTimer;
+    QElapsedTimer m_reconTimer;
+    int m_totalProcessedFrames;
+
+    // UI elements for status display
+    QLabel* m_statusLabel;
+    QLabel* m_fpsLabel;
+    QLabel* m_pointCountLabel;
 };
 
 #endif // SINGLERECONSTRUCTWIDGET_H
